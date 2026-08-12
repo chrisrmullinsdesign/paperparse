@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+
+# Generated fixtures and debug crops. Regenerate with `npm run fixtures`
+# and `npx tsx scripts/debug-crops.ts` — they are deterministic from seed.
+fixtures/out/
+fixtures/crops/
+
+.DS_Store

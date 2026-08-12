@@ -1,0 +1,230 @@
+# paperparse
+
+Extract structured data from photographs of handwritten paper forms — with geometry-aware cropping, a human-review queue, PII redaction, and a reproducible eval harness.
+
+Built around one idea: **a form is data, not code.** You describe the physical artifact once, in a `FormSpec`, and the prompt, the crop geometry, the output schema, the validator, and the redaction pass all read from it. Supporting a new form means writing a spec, not editing the pipeline.
+
+---
+
+## The problem this solves
+
+Hand a vision model a photograph of a dense 100-row grid and ask it to transcribe every row. It will often return twenty plausible rows, a confident note, and no indication that it summarized instead of transcribing. Nothing in the response distinguishes that from success.
+
+You can't prompt your way out of it reliably, because the failure is structural: a full-page grid *affords* summarization. So the pipeline removes the affordance.
+
+```
+photograph
+   │
+   ├─ prepare ........ strip EXIF, optional enhance, optional downscale
+   │
+   ├─ read ........... crop into printed bands via FormSpec geometry,
+   │                   one request per band — ten rows at a time
+   │
+   ├─ normalize ...... catch the two-digit-year slip before it looks like history
+   │
+   └─ validate ....... type-check fields, apply cross-field rules,
+                       route low-confidence rows to review,
+                       and record every drop with a reason
+```
+
+There is no plausible summary of ten rows that isn't just the ten rows.
+
+---
+
+## The FormSpec
+
+A spec describes the physical form. Here is the part that does the work — the layout:
+
+```ts
+layout: {
+  sectionChunkRows: 10,
+  blocks: [
+    { id: 'main-left',   keys: { from: 1,   to: 50  }, x: [0.02, 0.49], y: [0.11, 0.75], rowSlots: 50 },
+    { id: 'river-bend',  keys: { from: 90,  to: 98  }, x: [0.51, 0.99], y: [0.734, 0.878], rowSlots: 9 },
+    { id: 'main-right',  keys: { from: 51,  to: 100 }, x: [0.51, 0.99], y: [0.11, 0.91], rowSlots: 50 },
+    { id: 'group-sites', keys: { from: 101, to: 107 }, x: [0.02, 0.49], y: [0.77, 0.89], rowSlots: 7 },
+  ],
+}
+```
+
+Three things in there are the whole design:
+
+**Blocks resolve in declaration order, first match wins.** `river-bend` covers rows 90–98, which are numerically inside `main-right`'s 51–100 range. Declaring it first lets a visually distinct band take precedence over the column that contains it. Real forms are full of these.
+
+**`rowSlots` is not the key count.** `main-right` declares 50 slots but only *resolves* 41 of them, because the band claims nine. Row pitch has to come from the slot count or every crop below row 51 drifts upward by a growing margin. This is the kind of thing that fails silently — the model reads whatever is in the frame and you get plausible rows attributed to the wrong keys.
+
+**Chunking is derived, not written.** Two rules — never cross a block boundary, skip keys an earlier block claimed — reproduce, exactly, the chunk boundaries that were originally hand-tuned against a real form:
+
+```
+[1-10] [11-20] [21-30] [31-40] [41-50]        ← left column
+[90-98]                                        ← the band
+[51-60] [61-70] [71-80] [81-89] [99-100]       ← right column, split around the band
+[101-107]                                      ← group block
+```
+
+Note `[81-89]` stopping at 89 and `[99-100]` picking up after: that falls out of the two rules. There's a test asserting exactly this list, because it's the argument for the abstraction.
+
+---
+
+## What's in here
+
+| Area | What it does |
+| --- | --- |
+| `src/formspec/` | The spec type and the geometry engine — key → normalized rect, chunk derivation |
+| `src/image/` | EXIF stripping, optional enhancement, cropping, portrait splitting with overlap-aware merge |
+| `src/extract/` | Prompt + JSON-schema generation from a spec, the backend interface, the Anthropic backend, section runner |
+| `src/validate/` | Field typing, cross-field rules, confidence routing, two-digit-year correction |
+| `src/eval/` | Multiset diff, precision/recall/F1, the benchmark harness, review-question generation |
+| `src/redact/` | Locate and blur PII columns to produce a shareable copy of a form photograph |
+| `examples/` | A worked spec for a 107-row campground roster |
+| `fixtures/` | Synthetic form generator — images with ground truth, no API key needed |
+
+---
+
+## Quickstart
+
+```bash
+npm install
+npm test                 # 96 tests, no API key required
+npm run fixtures         # render the synthetic corpus to fixtures/out/
+```
+
+Extract a single image:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+npm run extract -- fixtures/out/clean.jpg
+```
+
+```
+Read mode: sections (12 chunks)
+Rows: 54 returned, 52 accepted, 2 dropped
+
+Dropped:
+  row 41: failed_row_rule (departure-after-arrival: date_out 2024-10-23 is not after date_in 2024-10-29)
+  row 77: invalid_row_key (row_key="G3")
+
+Confident (49):
+    2  date_in=2024-10-28  date_out=2024-11-03
+    5  date_in=2024-11-01  date_out=2024-11-04
+  ...
+
+Needs review (3):
+   67  date_in=2024-10-27  date_out=2024-10-30
+
+Review queue (3 questions):
+  Low-confidence read of "date_in" on row 67 — 2024-10-27 | 2024-10-21 | 2024-10-29
+```
+
+*(Illustrative shape, not a recorded run — see the honesty note below.)*
+
+In code:
+
+```ts
+import { runPipeline, AnthropicBackend } from 'paperparse'
+import { campgroundRosterSpec, campgroundRosterRules } from './examples/campground-roster/spec.js'
+
+const result = await runPipeline(imageBuffer, campgroundRosterSpec, new AnthropicBackend(), {
+  readMode: 'sections',
+  rules: campgroundRosterRules,
+})
+
+result.rows           // confident, validated, typed
+result.uncertainRows  // the review queue
+result.stats.drops    // every discarded row, with a reason
+```
+
+---
+
+## Seeing what the model sees
+
+Misaligned crops are the most likely thing to go wrong in a new spec, and they fail quietly. So look at them:
+
+```bash
+npx tsx scripts/debug-crops.ts fixtures/out/clean.jpg
+```
+
+Writes one JPEG per chunk to `fixtures/crops/`. Each carries one row of overlap on either side, so a row sitting on a chunk boundary is fully visible to at least one pass rather than half-visible to two.
+
+---
+
+## Benchmarking
+
+The harness runs a labelled corpus through several configurations and reports comparable numbers:
+
+```bash
+npm run fixtures
+npm run bench -- --limit 3            # start small; this spends real tokens
+npm run bench                         # whole vs. split vs. sections, full corpus
+```
+
+```
+| Configuration        | Row recall | Row precision | Exact F1 | Field accuracy | Avg / image |
+| -------------------- | ---------- | ------------- | -------- | -------------- | ----------- |
+| anthropic / whole    |            |               |          |                |             |
+| anthropic / split    |            |               |          |                |             |
+| anthropic / sections |            |               |          |                |             |
+```
+
+**The table is empty on purpose.** Publishing numbers I hadn't measured would defeat the point of shipping the harness. Run it and fill it in — that is the intended workflow.
+
+A few deliberate choices in how it scores:
+
+- **Multiset, not set.** A row emitted three times is a different mistake from a row emitted once. Counting with multiplicity captures both.
+- **Two diffs, reported separately.** Key-only ("did we find the row") and exact ("did we read it right") fail for different reasons and have different fixes — chunking versus crop quality.
+- **Undefined metrics are `null`, not `0`.** A parser that returned nothing has undefined precision, not perfect precision and not zero. Collapsing that produces averages that quietly lie about the empty cases.
+- **Micro-averaged.** Pooled over rows, so a sparse 3-row form doesn't move the number as much as a full 100-row one.
+- **Uncertain rows are scored.** They're a routing decision, not a claim of wrongness. Excluding them would flatter precision by hiding the parser's own hedges from the measurement.
+
+The same `multisetDiff` serves the review UI, comparing parser output to human-approved rows — so offline benchmark numbers and production correction rates are computed on identical arithmetic and can be compared directly.
+
+---
+
+## Fixtures are synthetic, deliberately
+
+The generator renders fake filled-in forms and hands back the rows it wrote, so every image comes with a perfect label set and the benchmark is reproducible from a clean clone.
+
+Synthetic rather than redacted real forms, for two reasons. Redaction is a claim you have to defend every time you publish; synthesis isn't a claim at all. And a generator can target specific failure modes on demand:
+
+```bash
+# fixtures/out/ — clean, sparse, full, glare, skew, blur,
+#                 lowlight-shadow, cropped-edge, worst-case
+```
+
+It renders from the same `FormSpec` the pipeline reads, so generated rows land exactly where `rectForKey` expects them. If a crop is misaligned, the bug is in the geometry — not in a disagreement between two hand-maintained coordinate sets.
+
+---
+
+## Notes on the model integration
+
+- **Structured outputs, not prose parsing.** The JSON schema is generated from the spec, so there's no fenced-JSON extraction step and no retry-on-parse-failure loop. `src/extract/json.ts` survives as a fallback for backends without schema enforcement.
+- **Range checks live in the validator, not the schema.** A schema rejection loses the whole response; the validator drops one row and tells you which.
+- **Streaming, always.** Not for UI — `max_tokens` has to cover thinking plus a form's worth of JSON, and at those values a non-streaming request risks an HTTP timeout.
+- **Refusals are checked before reading content.** Safety classifiers return a normal 200 with an empty `content`, so indexing `content[0]` unconditionally throws.
+- **Prompts are written at normal volume.** No `CRITICAL:` / `YOU MUST` stacking — current models follow instructions closely enough that the emphasis older models needed now over-applies, pushing the model toward reporting rows it half-guessed. There's a test asserting the generated prompt stays clear of it.
+- **PII never reaches the output.** Fields marked `pii` are excluded from the prompt *and* from the generated schema *and* stripped by the validator even if a backend returns them anyway. Three layers, because the first two are the model's to honor and the third isn't.
+
+---
+
+## Honesty about what's verified
+
+- **96 tests, no network.** Geometry, chunk derivation, validation, year correction, diff/metrics, review-question generation, prompt and schema construction, split merging, and the full pipeline against a stub backend that answers from the generator's own ground truth.
+- **The live Anthropic path is compile-verified, not executed.** It typechecks against `@anthropic-ai/sdk` 0.116, but it has not been run against the API — I had no credentials in the environment where this was built. Expect to shake out something on first contact.
+- **No benchmark numbers are published** because none have been measured. See above.
+
+---
+
+## Adding a form
+
+1. Write a `FormSpec` — describe the artifact in prose, declare the row key and fields, mark PII, lay out the blocks.
+2. Run `debug-crops.ts` against a photo and look at every crop.
+3. Add cross-field rules as `RowRule`s if the form has constraints the schema can't express.
+4. Generate or label a small corpus and run the benchmark before trusting it.
+
+Step 2 is not optional. Everything downstream assumes the geometry is right, and wrong geometry produces confident, plausible, wrong output.
+
+---
+
+## License
+
+MIT
