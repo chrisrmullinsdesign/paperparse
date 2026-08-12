@@ -200,18 +200,25 @@ All figures below: the 9-image synthetic corpus, 488 gold rows, Claude Opus 5 at
 
 | Configuration | Row recall | Row precision | Exact F1 | Field accuracy | Requests | Cost / image | Avg / image |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| anthropic / whole | 100.0% | 100.0% | 100.0% | 100.0% | 1 | $0.115 | 51.3s |
-| textract / whole | 93.4% | 99.1% | 96.2% | 100.0% | 1 | ~$0.015 † | **4.0s** |
+| anthropic / whole | 99.6% | 99.6% | 99.6% | 100.0% | 1 | $0.110 | 31.6s |
+| textract / whole | 93.4% | 99.1% | 96.2% | 100.0% | 1 | ~$0.015 † | **4.6s** |
+| textract → anthropic / escalate | 95.1% | 98.9% | 97.0% | 100.0% | 2 | $0.064 | 22.5s |
 
 † The harness prices tokens; Textract bills per page. Its cost column reads `$0.000` because the number it knows is genuinely zero — the ~$0.015 is the published `AnalyzeDocument` TABLES rate, quoted here rather than computed.
+
+Reproduce with `npm run bench -- --textract --modes whole`.
 
 ### What the numbers say
 
 **Sectioning lost, and it was the hypothesis this repo was built on.** Worst recall of the three read modes, 2.6× the cost, thirteen requests against one. Two things plausibly explain it, and I can only argue for the first: the crops are small, and a model reading ten rows in isolation appears to hedge — 97.8% precision against 82.4% recall is the signature of dropping rows it isn't sure about rather than misreading them. The second is that these are *clean synthetic renders*, and the summarization failure that motivated sectioning may simply not occur on them. The technique was originally developed against real phone photographs of a real clipboard — glare, angle, thumb over the corner. **That is a limitation of this corpus, not a vindication of the technique.** Testing it needs real photographs and a real gold set, which this repo does not have.
 
-**A cheap geometric backend is closer than expected.** Textract gives up ~7 points of recall and returns in 4 seconds instead of 51, at roughly an eighth of the cost, with identical field accuracy once partial dates are resolved against the header. For a high-volume pipeline that ratio is hard to argue with.
+**A cheap geometric backend is closer than expected.** Textract gives up ~6 points of recall and returns in under 5 seconds instead of 32, at roughly an eighth of the cost, with *identical* field accuracy once partial dates are resolved against the header. Everything it got, it got right. For a high-volume pipeline that ratio is hard to argue with.
 
-**Run-to-run variance is real and worth stating.** `anthropic / whole` scored 98.2% in one run and 100.0% in another on the identical corpus; a single image measured 100% / 80.8% / 100% recall across three runs. These are single-pass numbers, not averages over repeats. Treat differences under a few points as noise — including the ones in these tables.
+**Escalation helps, but does not win here.** Reading cheaply and sending only the doubtful rows to the vision model recovers 1.7 points of recall over Textract alone (93.4% → 95.1%) at about half the vision model's cost. It is still 4.5 points behind just using the vision model, which costs $0.110 against $0.064. On this corpus the honest ranking is: accuracy → vision model; throughput and cost → Textract alone; the middle option earns its place only if your volume makes the ~40% saving matter more than the recall.
+
+**How escalation had to be fixed is the more interesting result.** The first version triggered on low confidence, which did *nothing at all* — identical scores, double the cost. The diagnosis: of 488 gold rows, Textract returned 30 with low confidence and got every one of them right, while losing recall on 8 rows it returned with a *field missing* and 4 it never returned. Confidence was measuring the wrong thing. Escalation now also triggers on a missing required field, which is where the 1.7 points came from. A half-read row turns out to be a better signal than a hedged one — and no amount of reasoning about it would have been as quick as measuring it.
+
+**Run-to-run variance is real and worth stating.** `anthropic / whole` scored 98.2%, 100.0% and 99.6% across three runs of the identical corpus; a single image measured 100% / 80.8% / 100% recall across three runs. These are single-pass numbers, not averages over repeats. Treat differences under a couple of points as noise — including the ones in these tables. Textract, by contrast, returns the same answer every time, which is its own kind of value.
 
 ### How it scores
 
