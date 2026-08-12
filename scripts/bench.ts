@@ -58,7 +58,11 @@ async function main() {
 
   const samples = await loadCorpus(limit)
   console.log(`Corpus: ${samples.length} samples, ${samples.reduce((n, s) => n + s.rows.length, 0)} gold rows`)
-  console.log(`Modes:  ${modes.join(', ')}   Effort: ${effort}\n`)
+  console.log(`Modes:  ${modes.join(', ')}   Effort: ${effort}`)
+  if (!new TextractBackend().isAvailable()) {
+    console.log('Textract: no AWS credentials found — skipping the geometric backend.')
+  }
+  console.log()
 
   const configs: BenchConfig[] = modes.map((readMode) => ({
     label: `${backend.name} / ${readMode}`,
@@ -67,10 +71,13 @@ async function main() {
     pipelineOptions: { rules: campgroundRosterRules, sectionConcurrency: 4 },
   }))
 
-  // Opt-in: the geometric backend, and the escalation pairing. Both read the page
-  // whole — sectioning is a vision-model workaround and means nothing to Textract.
-  if (process.argv.includes('--textract')) {
-    const textract = new TextractBackend()
+  // The geometric backend and the escalation pairing are included whenever AWS
+  // credentials look present — they are first-class here, not an add-on. Both read
+  // the page whole; sectioning is a vision-model workaround and means nothing to
+  // Textract. Pass --no-textract to skip them.
+  const textractCandidate = new TextractBackend()
+  if (!process.argv.includes('--no-textract') && textractCandidate.isAvailable()) {
+    const textract = textractCandidate
     configs.push({
       label: 'textract / whole',
       backend: textract,

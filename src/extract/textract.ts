@@ -30,6 +30,8 @@
  * vision model.
  */
 
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   TextractClient,
   AnalyzeDocumentCommand,
@@ -208,16 +210,21 @@ export class TextractBackend implements Backend {
   }
 
   isAvailable(): boolean {
-    // Credentials can come from the environment, a shared profile, or an instance
-    // role, so absence of env vars proves nothing. Treat a profile as plausible and
-    // let the request fail loudly if it isn't.
-    return Boolean(
+    // Credentials can come from the environment, a shared config file, or an
+    // instance role. Absence of env vars proves nothing on its own, so a shared
+    // config file counts — but `HOME` being set does not, which an earlier version
+    // of this check treated as sufficient and so returned true everywhere.
+    if (
       process.env.AWS_ACCESS_KEY_ID ||
-        process.env.AWS_PROFILE ||
-        process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI ||
-        process.env.AWS_WEB_IDENTITY_TOKEN_FILE ||
-        process.env.HOME,
-    )
+      process.env.AWS_PROFILE ||
+      process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI ||
+      process.env.AWS_WEB_IDENTITY_TOKEN_FILE
+    ) {
+      return true
+    }
+    const home = process.env.HOME ?? process.env.USERPROFILE
+    if (!home) return false
+    return existsSync(join(home, '.aws', 'credentials')) || existsSync(join(home, '.aws', 'config'))
   }
 
   async extract(req: ExtractRequest): Promise<ExtractResponse> {

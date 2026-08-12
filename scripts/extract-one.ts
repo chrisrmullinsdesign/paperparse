@@ -8,6 +8,9 @@
 import { readFile } from 'node:fs/promises'
 import { runPipeline, type ReadMode } from '../src/pipeline.js'
 import { AnthropicBackend } from '../src/extract/anthropic.js'
+import { TextractBackend } from '../src/extract/textract.js'
+import { EscalatingBackend } from '../src/extract/escalate.js'
+import type { Backend } from '../src/extract/backend.js'
 import { generateAmbiguities } from '../src/eval/ambiguity.js'
 import { campgroundRosterSpec, campgroundRosterRules } from '../examples/campground-roster/spec.js'
 
@@ -19,13 +22,29 @@ function arg(name: string): string | undefined {
 async function main() {
   const path = process.argv[2]
   if (!path || path.startsWith('--')) {
-    console.error('Usage: npm run extract -- <image> [--mode auto|whole|split|sections] [--json]')
+    console.error(
+      'Usage: npm run extract -- <image> [--backend anthropic|textract|escalate] [--mode auto|whole|split|sections] [--json]',
+    )
+    process.exitCode = 1
+    return
+  }
+
+  const which = arg('backend') ?? 'anthropic'
+  const backend: Backend =
+    which === 'textract'
+      ? new TextractBackend()
+      : which === 'escalate'
+        ? new EscalatingBackend(new TextractBackend(), new AnthropicBackend())
+        : new AnthropicBackend()
+
+  if (!backend.isAvailable()) {
+    console.error(`No credentials found for the "${which}" backend.`)
     process.exitCode = 1
     return
   }
 
   const image = await readFile(path)
-  const result = await runPipeline(image, campgroundRosterSpec, new AnthropicBackend(), {
+  const result = await runPipeline(image, campgroundRosterSpec, backend, {
     readMode: (arg('mode') as ReadMode) ?? 'auto',
     rules: campgroundRosterRules,
     sectionConcurrency: 4,
@@ -39,7 +58,10 @@ async function main() {
   }
 
   const { stats } = result
-  console.log(`\nRead mode: ${result.meta.sectionParse ? `sections (${result.meta.sectionChunkCount} chunks)` : result.meta.splitParse ? 'split' : 'whole'}`)
+  console.log(`\nBackend:   ${result.meta.backend}  (${result.usage.requests} request${result.usage.requests === 1 ? '' : 's'})`)
+  console.log(
+    `Read mode: ${result.meta.sectionParse ? `sections (${result.meta.sectionChunkCount} chunks)` : result.meta.splitParse ? 'split' : 'whole'}`,
+  )
   if (result.yearCorrection) {
     console.log(`Year correction: ${result.yearCorrection.from} → ${result.yearCorrection.to}`)
   }
