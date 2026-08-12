@@ -30,8 +30,8 @@ photograph
    │
    ├─ prepare ........ strip EXIF, optional enhance, optional downscale
    │
-   ├─ read ........... whole page, split in half, or cropped into printed
-   │                   bands via FormSpec geometry (`whole` by default)
+   ├─ read ........... one whole-page request by default; split-in-half and
+   │                   geometry-cropped modes available and measured
    │
    ├─ normalize ...... catch the two-digit-year slip before it looks like history
    │
@@ -98,7 +98,7 @@ Note `[81-89]` stopping at 89 and `[99-100]` picking up after: that falls out of
 
 ```bash
 npm install
-npm test                 # 123 tests, no API key required
+npm test                 # 124 tests, no API key required
 npm run fixtures         # render the synthetic corpus to fixtures/out/
 ```
 
@@ -288,7 +288,7 @@ This library's whole job is decoding images from untrusted sources, so the image
 
 ## Honesty about what's verified
 
-- **123 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
+- **124 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
 - **Both backends have been run against their live APIs**, as has the redaction pass. The numbers in the benchmark tables are recorded runs, not estimates.
 - **Every number here is a single pass over 9 synthetic images.** Not averaged over repeats, and the same configuration has moved ~2 points between runs. Differences of a few points are noise.
 - **The corpus is synthetic and clean.** That is what makes it reproducible, and it is also its main limitation — see the sectioning discussion above. Nothing here has been measured against real photographs.

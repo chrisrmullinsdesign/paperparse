@@ -193,18 +193,34 @@ describe('runPipeline', () => {
     expect(result.rows[0].fields.date_in).toBe(sample.rows[0].fields.date_in)
   })
 
-  it('picks sections automatically when the spec declares geometry', async () => {
+  it('defaults to a single whole-page request, whatever geometry the spec declares', async () => {
+    // Followed the measurement: whole beat split by ~6 points of recall and
+    // sections by ~17, at the lowest cost of the three.
     const sample = await generateSample(spec, { seed: 5, fillRate: 0.2 })
-    const result = await runPipeline(sample.image, spec, new StubBackend(sample.rows), { rules })
-    expect(result.meta.sectionParse).toBe(true)
+    const backend = new StubBackend(sample.rows)
+    const result = await runPipeline(sample.image, spec, backend, { rules })
+
+    expect(result.meta.sectionParse).toBe(false)
+    expect(result.meta.splitParse).toBe(false)
+    expect(backend.calls).toEqual(['whole'])
   })
 
-  it('falls back to split when the spec has no layout blocks', async () => {
+  it('still honours an explicit split request', async () => {
     const sample = await generateSample(spec, { seed: 6, fillRate: 0.2 })
-    const flat = { ...spec, layout: { ...spec.layout, blocks: [] } }
-    const result = await runPipeline(sample.image, flat, new StubBackend(sample.rows), { rules })
-    expect(result.meta.sectionParse).toBe(false)
+    const result = await runPipeline(sample.image, spec, new StubBackend(sample.rows), {
+      readMode: 'split',
+      rules,
+    })
     expect(result.meta.splitParse).toBe(true)
+  })
+
+  it('falls back to a whole read when split is asked for on a non-portrait image', async () => {
+    const sample = await generateSample(spec, { seed: 6, fillRate: 0.2, width: 1600, height: 1200 })
+    const result = await runPipeline(sample.image, spec, new StubBackend(sample.rows), {
+      readMode: 'split',
+      rules,
+    })
+    expect(result.meta.splitParse).toBe(false)
   })
 
   it('issues exactly one request in whole mode', async () => {

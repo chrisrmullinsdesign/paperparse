@@ -27,12 +27,18 @@ import type { ExtractionResult, PipelineMeta, ValidationOutput } from './types.j
  *   blocks that match the form. **Measured worst on the synthetic corpus** — 82%
  *   recall against 98% for `whole`, at 13 requests instead of one. See the
  *   benchmark section of the README before reaching for it.
- * - `auto`     — `split` for portrait images, otherwise `whole`.
+ * - `auto`     — `whole`.
  *
- * `auto` deliberately does *not* choose `sections`, even when the spec declares the
- * geometry for it. It did until the benchmark was run, on the theory that cropping
- * defeats grid summarization; the measurement did not support that on clean
- * captures, so the default follows the data. Ask for `sections` explicitly.
+ * `auto` is a single request, because that is what measured best: 99.6% row recall
+ * against 93.9% for `split` and 82.4% for `sections`, at the lowest cost of the
+ * three. It selected `sections` until the benchmark was run, on the theory that
+ * cropping defeats grid summarization, and `split` after that. Neither survived
+ * contact with the numbers.
+ *
+ * `split` and `sections` are still here and still supported — they encode real
+ * mitigations for a real failure, and this corpus is clean synthetic renders rather
+ * than the messy phone photographs that motivated them. Ask for them explicitly, and
+ * measure on your own documents before adopting one.
  */
 export type ReadMode = 'auto' | 'sections' | 'split' | 'whole'
 
@@ -94,7 +100,6 @@ export async function runPipeline(
     maxLongEdgePx: opts.maxLongEdgePx,
   })
 
-  const hasGeometry = spec.layout.blocks.length > 0
   const requested = opts.readMode ?? 'auto'
 
   let raw: ExtractionResult
@@ -103,7 +108,7 @@ export async function runPipeline(
   let splitParse = false
   let sectionChunkCount: number | undefined
 
-  if (requested === 'sections' || (requested === 'auto' && hasGeometry)) {
+  if (requested === 'sections') {
     const sectioned = await extractBySections(image, spec, backend, {
       concurrency: opts.sectionConcurrency,
       onProgress: opts.onProgress,
@@ -112,7 +117,7 @@ export async function runPipeline(
     usage = sectioned.usage
     sectionParse = true
     sectionChunkCount = sectioned.chunkCount
-  } else if (requested === 'split' || requested === 'auto') {
+  } else if (requested === 'split') {
     const merged = await readSplit(image, spec, backend)
     if (merged) {
       raw = merged.result
