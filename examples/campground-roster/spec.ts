@@ -64,19 +64,30 @@ Each row has: the printed site number, then handwritten columns for last name, p
       { from: 1, to: 100 },
       { from: 101, to: 107 },
     ],
+    // G1-G7 print a letter, not a number, so they can't join the gutter fit — too
+    // few of them, and they sit in their own block. They anchor on their own label.
+    labelPattern: { pattern: '^G([1-7])$', base: 100, bandHalfHeight: 0.007 },
   },
 
   fields: [
-    // `column` is the field's horizontal extent as a fraction of its block's width.
-    // The vision backends ignore it — they read the columns off the image. It exists
-    // for backends that get words and bounding boxes and nothing else. The gutter
-    // below 0.10 is the printed site number and belongs to no field.
+    // Two independent mappings for the geometric backend, and they disagree about
+    // this form on purpose.
+    //
+    // `column` is an x-window into the *synthetic* fixture's layout, which prints
+    // name and permit before the dates. It only works on a rectified page.
+    //
+    // `order` is the reading order of the *real* artifact, whose printed columns run
+    // SITE # | DATE IN | DATE OUT | # OF PEOPLE | Last Name | Permit # — dates come
+    // immediately after the site number. Order is what the anchored mode uses, and
+    // it is the one to trust: it survives keystone, skew, and an arbitrary crop,
+    // and it needed no measurement of the photograph to write down.
     {
       name: 'last_name',
       type: 'string',
       description: 'Handwritten last name of the camper.',
       pii: true,
       column: [0.10, 0.36],
+      order: 2,
     },
     {
       name: 'permit_number',
@@ -84,6 +95,7 @@ Each row has: the printed site number, then handwritten columns for last name, p
       description: 'Handwritten permit number.',
       pii: true,
       column: [0.36, 0.58],
+      order: 3,
     },
     {
       name: 'date_in',
@@ -91,6 +103,7 @@ Each row has: the printed site number, then handwritten columns for last name, p
       description:
         'Arrival date, as YYYY-MM-DD. The paper usually shows month/day only — take the year from the sheet header, or from the other dates on the sheet if the header is illegible.',
       column: [0.58, 0.78],
+      order: 0,
     },
     {
       name: 'date_out',
@@ -98,6 +111,7 @@ Each row has: the printed site number, then handwritten columns for last name, p
       description:
         'Departure date, as YYYY-MM-DD. This is the day the site frees up, so it is always after the arrival date.',
       column: [0.78, 1.0],
+      order: 1,
     },
   ],
 

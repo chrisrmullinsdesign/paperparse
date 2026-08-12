@@ -102,13 +102,23 @@ export interface FieldSpec {
    * containing block's width — `[0, 1]` spans the block, `[0.58, 0.78]` is a column
    * a bit right of centre.
    *
-   * Optional, and unused by the vision backends: a vision model reads the columns
-   * from the image. It is what lets a **geometric** backend work at all — an OCR or
-   * document-AI service returns words with bounding boxes and no idea which of them
-   * is a departure date, and this is the mapping that answers that. Declare it if
-   * you intend to run anything other than a vision model against the form.
+   * Only used by the geometric backend's `positional` mode, which requires a
+   * rectified page. Prefer `order` — see below — unless you know your inputs are
+   * scans rather than photographs.
    */
   column?: [number, number]
+  /**
+   * Position of this field among the row's cells, reading left to right, 0-based.
+   *
+   * This is what the anchored mode uses instead of `column`, and it is strictly more
+   * robust: ordering survives keystone, skew, an unexpected crop, and a resolution
+   * change, where an x-window does not. A form whose columns are printed in a fixed
+   * order — which is nearly all of them — needs nothing more than this.
+   *
+   * Fields are matched against cells that parse as the field's `type`, so a text
+   * column between two date columns doesn't shift the dates' positions.
+   */
+  order?: number
 }
 
 /** The field that identifies a row — the printed row number, ID, or line number. */
@@ -118,8 +128,21 @@ export interface RowKeySpec {
   /**
    * Valid key ranges. Multiple ranges let a form encode a second series (e.g.
    * lettered group rows mapped onto a numeric range above the main grid).
+   *
+   * A range is a **validity check, not a layout claim.** Real forms skip numbers —
+   * a roster printing `51, 52, 53, 55, 56, 64…` is normal — so nothing may assume
+   * the keys in a range are all present or evenly spaced.
    */
   ranges: KeyRange[]
+  /**
+   * Rows whose key is printed as a label rather than a bare number, mapped onto the
+   * numeric key space: `G1`…`G7` at `base: 100` becomes keys 101–107.
+   *
+   * `pattern` needs one capture group for the numeric part. `bandHalfHeight` is the
+   * row band in page fractions — these rows sit outside the main grid and have no
+   * fitted pitch to borrow.
+   */
+  labelPattern?: { pattern: string; base: number; bandHalfHeight: number }
 }
 
 /** A column region that may contain PII, located for redaction. */

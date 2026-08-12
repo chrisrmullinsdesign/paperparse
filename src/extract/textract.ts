@@ -38,13 +38,25 @@ import {
   type Block,
 } from '@aws-sdk/client-textract'
 import { keyAtNormPoint, fieldAtNormPoint } from '../formspec/geometry.js'
+import { anchoredRows, anchoredLabelRows, type AnchorWord, type AnchoredRow } from './anchor.js'
 import { resolvePartialDate } from '../validate/rows.js'
 import type { Backend, ExtractRequest, ExtractResponse } from './backend.js'
 import type { Confidence, ExtractionResult, RawRow } from '../types.js'
+import type { FieldSpec, FormSpec } from '../formspec/types.js'
 
 export interface TextractBackendOptions {
   region?: string
   client?: TextractClient
+  /**
+   * How OCR output becomes rows.
+   *
+   * - `anchored` (default) — find the printed row-key column in the OCR output and
+   *   derive everything from it. Photo-invariant; needs no declared coordinates.
+   * - `positional` — test each word's centre against the spec's declared geometry.
+   *   Requires a rectified page. Kept for scans and for comparison; on photographs
+   *   it fails in the way documented in `anchor.ts`.
+   */
+  strategy?: 'anchored' | 'positional'
   /**
    * Words below this confidence are dropped rather than guessed at. Textract scores
    * are 0–100. Handwriting routinely lands in the 70s even when correct, so this is
@@ -200,8 +212,10 @@ export class TextractBackend implements Backend {
   private readonly minWordConfidence: number
   private readonly high: number
   private readonly medium: number
+  private readonly strategy: 'anchored' | 'positional'
 
   constructor(opts: TextractBackendOptions = {}) {
+    this.strategy = opts.strategy ?? 'anchored'
     this.client =
       opts.client ?? new TextractClient({ region: opts.region ?? process.env.AWS_REGION ?? 'us-east-1' })
     this.minWordConfidence = opts.minWordConfidence ?? DEFAULT_MIN_WORD_CONFIDENCE
@@ -239,8 +253,17 @@ export class TextractBackend implements Backend {
 
     const blocks = response.Blocks ?? []
     const documentDate = readHeaderDate(req.spec, blocks)
-    const placed = placeWords(req.spec, blocks, this.minWordConfidence)
-    const rows = assembleRows(req.spec, placed, { high: this.high, medium: this.medium })
+
+    const rows =
+      this.strategy === 'anchored'
+        ? assembleAnchored(req.spec, toAnchorWords(blocks, this.minWordConfidence), {
+            high: this.high,
+            medium: this.medium,
+          })
+        : assembleRows(req.spec, placeWords(req.spec, blocks, this.minWordConfidence), {
+            high: this.high,
+            medium: this.medium,
+          })
 
     // Textract returns cell text verbatim — "10/28", not an ISO date. Resolving that
     // against the header is the inference a vision model performs implicitly and a
@@ -257,7 +280,7 @@ export class TextractBackend implements Backend {
     const result: ExtractionResult = {
       document_date: documentDate,
       rows,
-      notes: `textract: ${blocks.filter((b) => b.BlockType === 'WORD').length} words read, ${placed.length} placed into ${rows.length} rows${documentDate ? `; header date ${documentDate}` : '; no header date found'}`,
+      notes: `textract/${this.strategy}: ${blocks.filter((b) => b.BlockType === 'WORD').length} words read into ${rows.length} rows${documentDate ? `; header date ${documentDate}` : '; no header date found'}`,
       looks_like_expected_form: rows.length > 0,
     }
 
@@ -270,4 +293,103 @@ export class TextractBackend implements Backend {
       usage: { inputTokens: 0, outputTokens: 0 },
     }
   }
+}
+
+// ── anchored assembly ────────────────────────────────────────────────────────
+
+/** Textract blocks → the normalized word shape the anchoring core consumes. */
+export function toAnchorWords(blocks: readonly Block[], minConfidence = 0): AnchorWord[] {
+  const out: AnchorWord[] = []
+  for (const b of blocks) {
+    if (b.BlockType !== 'WORD') continue
+    const text = b.Text?.trim()
+    const box = b.Geometry?.BoundingBox
+    if (!text || !box) continue
+    const confidence = b.Confidence ?? 0
+    if (confidence < minConfidence) continue
+    const { Left = 0, Top = 0, Width = 0, Height = 0 } = box
+    out.push({
+      text,
+      confidence,
+      cx: Left + Width / 2,
+      cy: Top + Height / 2,
+      // Right edge: the printed key column is right-aligned, so this is what bins
+      // `7` and `47` into the same gutter. See `findGutters`.
+      rx: Left + Width,
+    })
+  }
+  return out
+}
+
+/** Does a raw cell token look like a value of this field's type? */
+function looksLike(type: FieldSpec['type'], text: string): boolean {
+  switch (type) {
+    case 'iso-date':
+      // Month/day with any separator, tolerating a pen hook either side — a real
+      // read of `5/4!` is correct, and rejecting it loses a row.
+      return /^[^\d]*\d{1,2}\s*[/.-]\s*\d{1,2}[^\d]*$/.test(text) || /^\d{4}-\d{2}-\d{2}$/.test(text)
+    case 'integer':
+      return /^\d+$/.test(text)
+    default:
+      return text.length > 0
+  }
+}
+
+/**
+ * Fill a row's fields from its cells by **order**, not by x-window.
+ *
+ * Each ordered field takes the next cell that looks like its type. Type-matching is
+ * what stops an unmapped column between two dates from shifting them: a name in the
+ * middle of the row is simply not a date-shaped token, so the second date still lands
+ * in the second date field.
+ */
+export function fillByOrder(spec: FormSpec, row: AnchoredRow): Record<string, unknown> {
+  const ordered = spec.fields
+    .filter((f) => f.order !== undefined)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  if (ordered.length === 0) return {}
+
+  const emitted = new Set(spec.fields.filter((f) => !f.pii).map((f) => f.name))
+  const fields: Record<string, unknown> = {}
+  const used = new Set<number>()
+
+  for (const field of ordered) {
+    const i = row.cells.findIndex((c, idx) => !used.has(idx) && looksLike(field.type, c.text))
+    if (i === -1) continue
+    used.add(i)
+    if (emitted.has(field.name)) fields[field.name] = row.cells[i].text
+  }
+
+  return fields
+}
+
+/** Anchored rows → RawRows, dropping the blanks that exist for the review queue. */
+export function assembleAnchored(
+  spec: FormSpec,
+  words: readonly AnchorWord[],
+  opts: { high?: number; medium?: number } = {},
+): RawRow[] {
+  const high = opts.high ?? DEFAULT_HIGH
+  const medium = opts.medium ?? DEFAULT_MEDIUM
+
+  const rows = [...anchoredRows(spec, words), ...anchoredLabelRows(spec, words)].sort(
+    (a, b) => a.rowKey - b.rowKey,
+  )
+
+  const out: RawRow[] = []
+  for (const row of rows) {
+    const fields = fillByOrder(spec, row)
+    if (Object.keys(fields).length === 0) continue
+
+    // Confidence spans the key and every cell in the band, including unmapped ones:
+    // a row whose neighbouring column came back as mush is worth a second look.
+    const scores = [row.keyConfidence, ...row.cells.map((c) => c.confidence)]
+    const mean = scores.reduce((a, b) => a + b, 0) / scores.length
+    out.push({
+      row_key: row.rowKey,
+      fields,
+      confidence: mean >= high ? 'high' : mean >= medium ? 'medium' : 'low',
+    })
+  }
+  return out
 }

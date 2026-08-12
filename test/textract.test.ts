@@ -165,11 +165,12 @@ describe('assembleRows', () => {
 })
 
 describe('TextractBackend', () => {
-  it('maps a stubbed AnalyzeDocument response into rows', async () => {
+  it('maps a stubbed response into rows in positional mode', async () => {
     const dIn = pointFor(22, 'date_in')
     const blocks = [word('10/26', dIn.x, dIn.y)]
 
     const backend = new TextractBackend({
+      strategy: 'positional',
       client: { send: async () => ({ Blocks: blocks }) } as never,
     })
 
@@ -181,7 +182,37 @@ describe('TextractBackend', () => {
     expect(result.document_date).toBeNull()
   })
 
-  it('reports the form as unrecognised when nothing places', async () => {
+  it('defaults to anchored mode, which needs no declared coordinates', async () => {
+    // A page of printed keys with a keystone, at a pitch the spec never declares.
+    const blocks: Block[] = []
+    for (let i = 0; i < 14; i++) {
+      const cy = 0.15 + i * 0.017
+      const gx = 0.2 - 0.05 * (cy - 0.15)
+      blocks.push({
+        BlockType: 'WORD',
+        Text: String(i + 1),
+        Confidence: 99,
+        Geometry: { BoundingBox: { Left: gx - 0.02, Top: cy - 0.004, Width: 0.02, Height: 0.008 } },
+      })
+      for (const [text, dx] of [['10/26', 0.05], ['10/28', 0.11]] as const) {
+        blocks.push({
+          BlockType: 'WORD',
+          Text: text,
+          Confidence: 98,
+          Geometry: { BoundingBox: { Left: gx + dx, Top: cy - 0.004, Width: 0.03, Height: 0.008 } },
+        })
+      }
+    }
+
+    const backend = new TextractBackend({ client: { send: async () => ({ Blocks: blocks }) } as never })
+    const { result } = await backend.extract({ image: Buffer.alloc(0), spec, prompt: '' })
+
+    expect(result.rows.map((r) => r.row_key)).toEqual([...Array(14)].map((_, i) => i + 1))
+    expect(result.rows[0].fields).toEqual({ date_in: '10/26', date_out: '10/28' })
+    expect(result.notes).toContain('textract/anchored')
+  })
+
+  it('reports the form as unrecognised when nothing resolves', async () => {
     const backend = new TextractBackend({ client: { send: async () => ({ Blocks: [] }) } as never })
     const { result } = await backend.extract({ image: Buffer.alloc(0), spec, prompt: '' })
     expect(result.looks_like_expected_form).toBe(false)

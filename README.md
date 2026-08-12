@@ -6,7 +6,7 @@ Built around one idea: **a form is data, not code.** You describe the physical a
 
 | Backend | How it reads | Measured on the corpus below |
 | --- | --- | --- |
-| **Textract** | OCR words + bounding boxes, mapped to cells by the spec's geometry | 93.4% row recall, **100% field accuracy**, ~$0.015/page, **4.6s** |
+| **Textract** | OCR words + boxes, rows anchored on the printed row number | 93.4% row recall, **100% field accuracy**, ~$0.015/page, **4.6s** |
 | **Claude (vision)** | The image and a generated prompt | **99.6% row recall**, 100% field accuracy, $0.110/page, 31.6s |
 | **Textract → Claude** | Textract first; the vision model re-reads only the doubtful rows | 95.1% row recall, 100% field accuracy, $0.064/page, 22.5s |
 
@@ -106,7 +106,7 @@ Note `[81-89]` stopping at 89 and `[99-100]` picking up after: that falls out of
 
 ```bash
 npm install
-npm test                 # 124 tests, no API key required
+npm test                 # 146 tests, no API key required
 npm run fixtures         # render the synthetic corpus to fixtures/out/
 ```
 
@@ -229,6 +229,44 @@ Reproduce with `npm run bench -- --textract --modes whole`.
 
 **Run-to-run variance is real and worth stating.** `anthropic / whole` scored 98.2%, 100.0% and 99.6% across three runs of the identical corpus; a single image measured 100% / 80.8% / 100% recall across three runs. These are single-pass numbers, not averages over repeats. Treat differences under a couple of points as noise — including the ones in these tables. Textract, by contrast, returns the same answer every time, which is its own kind of value.
 
+### Reading rows without trusting the coordinates
+
+The geometric backend has two ways to turn OCR output into rows, and the difference matters more than anything else in this repo.
+
+**`positional`** tests each word's centre against the spec's declared geometry. It is simple and it works on scans. On a photograph it does not, and the failure is quiet — a coordinate test always resolves *some* row, just not the printed one.
+
+**`anchored`** (the default) ignores the declared coordinates entirely. It finds the printed row-number column in the OCR output, fits `rx = a + b·cy` through it to measure the page's keystone *from the paper itself*, and takes each row's cells from the band around its own anchor. Fields are assigned by reading order and token type rather than by x-window.
+
+Three measured facts make this not a refinement but the only thing that can work:
+
+| | Measured |
+| --- | --- |
+| Keystone drift of the printed gutter, top to bottom | ~0.024 in x |
+| Row pitch across 41 real sheets | 0.0090 – 0.0166 — a **1.8× spread**, so no declared constant serves |
+| Printed row numbers | **Not contiguous.** A real roster prints `51, 52, 53, 55, 56, 64, 65…` |
+
+That last one is fatal on its own. `key = first + slot` isn't mistuned, it's the wrong model of the form, and no coordinate adjustment repairs it. Anchoring reads the number instead of computing it, so gaps are simply not an event.
+
+Two details carry more weight than they look:
+
+- **Bin candidates on the right edge, not the centre.** The printed column is right-aligned, so `7` and `47` share a right edge but not a centre; centre-binning splits one gutter into two and neither half clears the anchor threshold.
+- **Select the gutter by longest strictly-ascending run, not by token count.** A "number of people" column is also a vertical stack of small integers and can outnumber the real gutter — but its values don't ascend down the page. This is what isolates the row index with no layout knowledge at all.
+
+### Validated on real photographs
+
+Everything else in this README is measured on synthetic renders. This part is not.
+
+Replayed against **41 real clipboard photographs** — five years of form revisions, 12–24 MP camera originals alongside 1.5 MP social-media re-encodes:
+
+| | Result |
+| --- | --- |
+| Both printed gutters located | **41 / 41** |
+| Line-fit residual (RMS) | median **0.0008**; 40 of 41 at ≤ 0.0014 |
+| Worst case | 0.0155, on one 2022 sheet |
+| Rows anchored | 1,524 across the corpus |
+
+**This validates registration, not accuracy.** A fit's own residuals tell you whether the page registered without anyone knowing the right answers — which is why it can run over an unlabelled corpus. What rows *say* is a separate question needing labelled sheets, and those photographs contain real personal data, so neither they nor their labels are in this repo. The synthetic corpus is what ships.
+
 ### How it scores
 
 - **Multiset, not set.** A row emitted three times is a different mistake from a row emitted once. Counting with multiplicity captures both.
@@ -275,7 +313,7 @@ This is not a general-purpose document extractor, and for most form-extraction p
 
 paperparse assumes the opposite situation: **one form, whose layout you know, that you process a lot of.** That assumption is the whole design. It's what lets the pipeline crop to a band it can name, reject a row that violates a rule the form guarantees, and score itself against a gold set. A generic extractor will find you a table; it won't know that rows 90–98 are the River Bend band, that G4 means key 104, or that a 40-night stay is impossible on this sheet. Those priors are what turn a plausible transcription into a checkable one.
 
-Known gaps, stated plainly: geometry is hand-authored rather than detected, there is no OCR fallback or non-LLM path, no PDF or multi-page support, one backend, and one worked example. It has not been benchmarked against any of the tools above — the numbers in this README compare *its own read modes* to each other, nothing more.
+Known gaps, stated plainly: no PDF or multi-page support, no table-structure detection, and one worked example. Row geometry is no longer hand-authored for the geometric backend — see *Reading rows without trusting the coordinates* — but column semantics and the vision path's crop geometry still are. It has not been benchmarked against any of the tools above — the numbers in this README compare *its own read modes* to each other, nothing more.
 
 **The obvious next thing** is a second backend built on a document-AI service rather than a vision model — Textract's `TABLES` mode, say. On a printed grid it returns cell structure natively, costs roughly an order of magnitude less per page, and gives *calibrated per-word confidence with bounding boxes*, where a vision model gives you a self-report that can be confidently wrong. That last point is the interesting one: it would make the review queue meaningfully better, because you could highlight the exact cell rather than the row.
 
@@ -297,10 +335,10 @@ This library's whole job is decoding images from untrusted sources, so the image
 
 ## Honesty about what's verified
 
-- **124 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
+- **146 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
 - **Both backends have been run against their live APIs**, as has the redaction pass. The numbers in the benchmark tables are recorded runs, not estimates.
 - **Every number here is a single pass over 9 synthetic images.** Not averaged over repeats, and the same configuration has moved ~2 points between runs. Differences of a few points are noise.
-- **The corpus is synthetic and clean.** That is what makes it reproducible, and it is also its main limitation — see the sectioning discussion above. Nothing here has been measured against real photographs.
+- **The corpus is synthetic and clean.** That is what makes it reproducible, and it is also its main limitation — see the sectioning discussion above. One exception: anchored registration was replayed against 41 real photographs (above), but those sheets carry personal data and are not in this repo, and the replay validates registration rather than accuracy.
 - **Not measured against any other tool.** See *Prior art* above.
 
 ---
