@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
+    "@aws-sdk/client-textract": "^3.1108.0",
     "sharp": "^0.35.3"
   },
   "devDependencies": {

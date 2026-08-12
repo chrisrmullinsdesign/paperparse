@@ -27,7 +27,48 @@ export interface ExtractResponse {
   usage?: {
     inputTokens?: number
     outputTokens?: number
+    /**
+     * Requests this response actually cost. Defaults to 1. A composing backend —
+     * escalation, or anything that calls another backend — must report the real
+     * count, or the harness undercounts exactly the configurations whose cost is
+     * the thing being measured.
+     */
+    requests?: number
   }
+}
+
+/**
+ * Token spend for a run, accumulated across however many requests it took.
+ *
+ * Tracked because the read modes trade accuracy against request count — sectioning
+ * a 107-row form is twelve requests where reading it whole is one. A benchmark that
+ * reports only accuracy makes the expensive option look unambiguously better.
+ */
+export interface UsageTotals {
+  requests: number
+  inputTokens: number
+  outputTokens: number
+}
+
+export const ZERO_USAGE: UsageTotals = { requests: 0, inputTokens: 0, outputTokens: 0 }
+
+export function addUsage(a: UsageTotals, b: ExtractResponse['usage']): UsageTotals {
+  return {
+    requests: a.requests + (b?.requests ?? 1),
+    inputTokens: a.inputTokens + (b?.inputTokens ?? 0),
+    outputTokens: a.outputTokens + (b?.outputTokens ?? 0),
+  }
+}
+
+export function sumUsage(totals: readonly UsageTotals[]): UsageTotals {
+  return totals.reduce<UsageTotals>(
+    (acc, u) => ({
+      requests: acc.requests + u.requests,
+      inputTokens: acc.inputTokens + u.inputTokens,
+      outputTokens: acc.outputTokens + u.outputTokens,
+    }),
+    { ...ZERO_USAGE },
+  )
 }
 
 export interface Backend {

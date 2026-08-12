@@ -12,7 +12,7 @@
 import { runPipeline, type PipelineOptions, type ReadMode } from '../pipeline.js'
 import { multisetDiff, fieldAccuracy, rowKeySignature, type MultisetDiff, type FieldAccuracy } from './diff.js'
 import { prf, microAverage, formatPct, type Prf } from './metrics.js'
-import type { Backend } from '../extract/backend.js'
+import { sumUsage, ZERO_USAGE, type Backend, type UsageTotals } from '../extract/backend.js'
 import type { FormSpec } from '../formspec/types.js'
 import type { ValidatedRow } from '../types.js'
 
@@ -30,6 +30,18 @@ export interface BenchConfig {
   pipelineOptions?: Omit<PipelineOptions, 'readMode'>
 }
 
+/** USD per million tokens. Defaults are Claude Opus 5 list rates. */
+export interface Pricing {
+  inputPerMTok: number
+  outputPerMTok: number
+}
+
+export const OPUS_5_PRICING: Pricing = { inputPerMTok: 5, outputPerMTok: 25 }
+
+export function costOf(usage: UsageTotals, pricing: Pricing): number {
+  return (usage.inputTokens / 1e6) * pricing.inputPerMTok + (usage.outputTokens / 1e6) * pricing.outputPerMTok
+}
+
 export interface SampleOutcome {
   sampleId: string
   /** Exact-match diff: row key and every field must agree. */
@@ -39,6 +51,7 @@ export interface SampleOutcome {
   fields: FieldAccuracy
   /** Wall-clock for the pipeline run. */
   durationMs: number
+  usage: UsageTotals
   error?: string
 }
 
@@ -51,6 +64,7 @@ export interface ConfigOutcome {
   keyOnly: Prf
   fieldAccuracy: number | null
   totalDurationMs: number
+  usage: UsageTotals
   /** Samples whose run threw. Excluded from the metrics — and reported, not hidden. */
   failedSamples: string[]
 }
@@ -91,6 +105,7 @@ export async function runBenchmark(
           keyOnly: multisetDiff(predicted, sample.rows, rowKeySignature),
           fields: fieldAccuracy(predicted, sample.rows),
           durationMs,
+          usage: result.usage,
         })
       } catch (err) {
         const durationMs = Date.now() - started
@@ -102,6 +117,7 @@ export async function runBenchmark(
           keyOnly: { predictedCount: 0, goldCount: sample.rows.length, matched: 0, spurious: 0, missed: sample.rows.length },
           fields: { comparedRows: 0, comparedFields: 0, correctFields: 0, errorsByField: {}, examples: [] },
           durationMs,
+          usage: { ...ZERO_USAGE },
           error: err instanceof Error ? err.message : String(err),
         })
       }
@@ -120,6 +136,7 @@ export async function runBenchmark(
       keyOnly: microAverage(scored.map((s) => s.keyOnly)),
       fieldAccuracy: comparedFields === 0 ? null : correctFields / comparedFields,
       totalDurationMs,
+      usage: sumUsage(sampleOutcomes.map((s) => s.usage)),
       failedSamples,
     })
   }
@@ -128,15 +145,20 @@ export async function runBenchmark(
 }
 
 /** Markdown table, ready to paste into a README. */
-export function formatBenchmarkTable(outcomes: readonly ConfigOutcome[]): string {
+export function formatBenchmarkTable(
+  outcomes: readonly ConfigOutcome[],
+  pricing: Pricing = OPUS_5_PRICING,
+): string {
   const header =
-    '| Configuration | Row recall | Row precision | Exact F1 | Field accuracy | Avg / image |\n' +
-    '| --- | --- | --- | --- | --- | --- |'
+    '| Configuration | Row recall | Row precision | Exact F1 | Field accuracy | Requests | Cost / image | Avg / image |\n' +
+    '| --- | --- | --- | --- | --- | --- | --- | --- |'
 
   const rows = outcomes.map((o) => {
     const n = o.samples.length || 1
     const avgMs = Math.round(o.totalDurationMs / n)
-    return `| ${o.label} | ${formatPct(o.keyOnly.recall)} | ${formatPct(o.keyOnly.precision)} | ${formatPct(o.exact.f1)} | ${formatPct(o.fieldAccuracy)} | ${(avgMs / 1000).toFixed(1)}s |`
+    const reqPerImage = (o.usage.requests / n).toFixed(0)
+    const costPerImage = costOf(o.usage, pricing) / n
+    return `| ${o.label} | ${formatPct(o.keyOnly.recall)} | ${formatPct(o.keyOnly.precision)} | ${formatPct(o.exact.f1)} | ${formatPct(o.fieldAccuracy)} | ${reqPerImage} | $${costPerImage.toFixed(3)} | ${(avgMs / 1000).toFixed(1)}s |`
   })
 
   const notes = outcomes

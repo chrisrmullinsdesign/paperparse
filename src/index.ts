@@ -23,6 +23,9 @@ export {
   sectionChunks,
   allValidKeys,
   isValidRowKey,
+  blockAtPoint,
+  keyAtNormPoint,
+  fieldAtNormPoint,
 } from './formspec/geometry.js'
 
 // Data shapes
@@ -47,9 +50,13 @@ export { cropNormRect, cropPixels, normRectToPixels } from './image/crop.js'
 export { splitVertically, mergeSplitResults } from './image/split.js'
 
 // Extraction
-export type { Backend, ExtractRequest, ExtractResponse, StrategyConfig, StrategyName } from './extract/backend.js'
-export { resolveStrategy } from './extract/backend.js'
+export type { Backend, ExtractRequest, ExtractResponse, StrategyConfig, StrategyName, UsageTotals } from './extract/backend.js'
+export { resolveStrategy, addUsage, sumUsage, ZERO_USAGE } from './extract/backend.js'
 export { AnthropicBackend, normalizeResult } from './extract/anthropic.js'
+export { TextractBackend, placeWords, assembleRows } from './extract/textract.js'
+export type { TextractBackendOptions } from './extract/textract.js'
+export { EscalatingBackend } from './extract/escalate.js'
+export type { EscalateOptions } from './extract/escalate.js'
 export { buildExtractionPrompt, buildSectionPrompt, buildOutputSchema, extractableFields } from './extract/prompt.js'
 export { extractBySections } from './extract/sections.js'
 export { extractJsonObject, parseJsonObject } from './extract/json.js'
@@ -64,8 +71,8 @@ export { multisetDiff, fieldAccuracy, rowSignature, rowKeySignature } from './ev
 export type { MultisetDiff, FieldAccuracy } from './eval/diff.js'
 export { prf, microAverage, formatPct } from './eval/metrics.js'
 export type { Prf } from './eval/metrics.js'
-export { runBenchmark, formatBenchmarkTable } from './eval/benchmark.js'
-export type { GoldSample, BenchConfig, ConfigOutcome, SampleOutcome } from './eval/benchmark.js'
+export { runBenchmark, formatBenchmarkTable, costOf, OPUS_5_PRICING } from './eval/benchmark.js'
+export type { GoldSample, BenchConfig, ConfigOutcome, SampleOutcome, Pricing } from './eval/benchmark.js'
 export { generateAmbiguities, ambiguitiesForRow } from './eval/ambiguity.js'
 
 // Redaction

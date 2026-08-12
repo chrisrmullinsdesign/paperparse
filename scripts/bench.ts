@@ -12,8 +12,10 @@
 import { readFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runBenchmark, formatBenchmarkTable, type BenchConfig, type GoldSample } from '../src/eval/benchmark.js'
+import { runBenchmark, formatBenchmarkTable, costOf, OPUS_5_PRICING, type BenchConfig, type GoldSample } from '../src/eval/benchmark.js'
 import { AnthropicBackend, type Effort } from '../src/extract/anthropic.js'
+import { TextractBackend } from '../src/extract/textract.js'
+import { EscalatingBackend } from '../src/extract/escalate.js'
 import { campgroundRosterSpec, campgroundRosterRules } from '../examples/campground-roster/spec.js'
 import type { ReadMode } from '../src/pipeline.js'
 
@@ -65,11 +67,33 @@ async function main() {
     pipelineOptions: { rules: campgroundRosterRules, sectionConcurrency: 4 },
   }))
 
+  // Opt-in: the geometric backend, and the escalation pairing. Both read the page
+  // whole — sectioning is a vision-model workaround and means nothing to Textract.
+  if (process.argv.includes('--textract')) {
+    const textract = new TextractBackend()
+    configs.push({
+      label: 'textract / whole',
+      backend: textract,
+      readMode: 'whole',
+      pipelineOptions: { rules: campgroundRosterRules },
+    })
+    configs.push({
+      label: 'textract->anthropic / escalate',
+      backend: new EscalatingBackend(textract, backend),
+      readMode: 'whole',
+      pipelineOptions: { rules: campgroundRosterRules },
+    })
+  }
+
   const outcomes = await runBenchmark(campgroundRosterSpec, samples, configs, (msg) =>
     process.stderr.write(`  ${msg}\n`),
   )
 
   console.log(`\n${formatBenchmarkTable(outcomes)}\n`)
+
+  const grandTotal = outcomes.reduce((sum, o) => sum + costOf(o.usage, OPUS_5_PRICING), 0)
+  const totalRequests = outcomes.reduce((sum, o) => sum + o.usage.requests, 0)
+  console.log(`Run total: ${totalRequests} requests, $${grandTotal.toFixed(2)} at Opus 5 list rates.\n`)
 
   for (const outcome of outcomes) {
     const worstFields = Object.entries(

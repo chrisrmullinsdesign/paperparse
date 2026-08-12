@@ -95,16 +95,46 @@ ${spec.examples.join('\n\n')}`)
  * gives the model a checklist and makes a missing row visible as an absence
  * rather than something it has to notice on its own.
  */
-export function buildSectionPrompt(spec: FormSpec, keys: readonly number[]): string {
+export function buildSectionPrompt(
+  spec: FormSpec,
+  keys: readonly number[],
+  documentDate?: string | null,
+): string {
   const base = buildExtractionPrompt(spec)
   const range = keys.length > 1 ? `${keys[0]}–${keys[keys.length - 1]}` : `${keys[0]}`
+
+  // Without this, a crop showing "10/28" has no year anywhere in frame and the model
+  // must guess one. It usually guesses well and says so in its notes — but a good
+  // guess and a read are indistinguishable to everything downstream.
+  const context = documentDate
+    ? `\n\nThe form's header — not visible in this crop — reads ${documentDate}. Resolve partial dates against that: use its year, and roll over to the next year for any date that would otherwise fall implausibly far before it.\n\nSet \`document_date\` to ${documentDate}.`
+    : `\n\nThe form's header is not visible in this crop. If a date is written without a year, infer the most plausible one from the other dates in view and mark the row "medium" rather than "high". Set \`document_date\` to null.`
+
   return `${base}
 
 ## This request
 
 You are looking at a crop of the form covering rows ${range} only.
 
-Return rows only for keys in that range. The crop may include a partial row above or below the range — ignore those; another pass covers them. If a row inside the range is blank, leave it out.`
+Return rows only for keys in that range. The crop may include a partial row above or below the range — ignore those; another pass covers them. If a row inside the range is blank, leave it out.${context}`
+}
+
+/**
+ * Prompt for the header pass — one cheap request that reads only the document date.
+ *
+ * Kept separate from the row extraction so it can run against a small crop of the
+ * top of the form rather than the whole page.
+ */
+export function buildHeaderPrompt(spec: FormSpec): string {
+  return `This is a crop of the top of a paper form: ${spec.title}.
+
+${spec.description}
+
+Read only the document-level date — the date printed or handwritten at the top of the sheet indicating when it was current. It may appear as a heading, an "as of" line, or a handwritten date and time.
+
+Return it as \`document_date\` in YYYY-MM-DD form. If the year is not written, infer it from any other context visible in the crop; if you cannot determine the date at all, return null.
+
+Return no rows — set \`rows\` to an empty array.`
 }
 
 /**

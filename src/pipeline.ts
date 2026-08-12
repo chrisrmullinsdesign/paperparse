@@ -12,20 +12,27 @@ import { extractBySections } from './extract/sections.js'
 import { buildExtractionPrompt } from './extract/prompt.js'
 import { normalizeYears } from './validate/years.js'
 import { validateExtraction, type RowRule } from './validate/rows.js'
-import type { Backend, StrategyConfig } from './extract/backend.js'
+import { addUsage, ZERO_USAGE, sumUsage, type Backend, type StrategyConfig, type UsageTotals } from './extract/backend.js'
 import type { FormSpec } from './formspec/types.js'
 import type { ExtractionResult, PipelineMeta, ValidationOutput } from './types.js'
 
 /**
  * How the image is presented to the model.
  *
- * - `sections` — crop per FormSpec geometry, one request per chunk. Most accurate,
- *   most requests. Requires layout blocks that match the actual form.
- * - `split`    — one request per half of a portrait image. Cheap mitigation for
- *   grid summarization; needs no geometry.
- * - `whole`    — a single request. The baseline the other two are measured against.
- * - `auto`     — `sections` when the spec declares blocks, otherwise `split` for
- *   portrait images, otherwise `whole`.
+ * - `whole`    — a single request. Cheapest, and on the benchmark corpus the best
+ *   recall of the three.
+ * - `split`    — one request per half of a portrait image. Best exact-match F1 and
+ *   field accuracy measured; needs no geometry.
+ * - `sections` — crop per FormSpec geometry, one request per chunk. Requires layout
+ *   blocks that match the form. **Measured worst on the synthetic corpus** — 82%
+ *   recall against 98% for `whole`, at 13 requests instead of one. See the
+ *   benchmark section of the README before reaching for it.
+ * - `auto`     — `split` for portrait images, otherwise `whole`.
+ *
+ * `auto` deliberately does *not* choose `sections`, even when the spec declares the
+ * geometry for it. It did until the benchmark was run, on the theory that cropping
+ * defeats grid summarization; the measurement did not support that on clean
+ * captures, so the default follows the data. Ask for `sections` explicitly.
  */
 export type ReadMode = 'auto' | 'sections' | 'split' | 'whole'
 
@@ -44,18 +51,25 @@ export interface PipelineOptions {
 
 export interface PipelineResult extends ValidationOutput {
   meta: PipelineMeta
+  /** Token spend for this run, across however many requests the read mode took. */
+  usage: UsageTotals
   /** Pre-validation model output, for debugging and for the eval harness. */
   raw: ExtractionResult
   /** Set when the two-digit-year correction fired. */
   yearCorrection?: { from: number; to: number }
 }
 
-async function readWhole(image: Buffer, spec: FormSpec, backend: Backend): Promise<ExtractionResult> {
-  const { result } = await backend.extract({ image, spec, prompt: buildExtractionPrompt(spec) })
-  return result
+interface Read {
+  result: ExtractionResult
+  usage: UsageTotals
 }
 
-async function readSplit(image: Buffer, spec: FormSpec, backend: Backend): Promise<ExtractionResult | null> {
+async function readWhole(image: Buffer, spec: FormSpec, backend: Backend): Promise<Read> {
+  const response = await backend.extract({ image, spec, prompt: buildExtractionPrompt(spec) })
+  return { result: response.result, usage: addUsage({ ...ZERO_USAGE }, response.usage) }
+}
+
+async function readSplit(image: Buffer, spec: FormSpec, backend: Backend): Promise<Read | null> {
   const halves = await splitVertically(image)
   if (!halves) return null
   const prompt = buildExtractionPrompt(spec)
@@ -63,7 +77,10 @@ async function readSplit(image: Buffer, spec: FormSpec, backend: Backend): Promi
     backend.extract({ image: halves.left, spec, prompt }),
     backend.extract({ image: halves.right, spec, prompt }),
   ])
-  return mergeSplitResults(left.result, right.result)
+  return {
+    result: mergeSplitResults(left.result, right.result),
+    usage: sumUsage([addUsage({ ...ZERO_USAGE }, left.usage), addUsage({ ...ZERO_USAGE }, right.usage)]),
+  }
 }
 
 export async function runPipeline(
@@ -81,6 +98,7 @@ export async function runPipeline(
   const requested = opts.readMode ?? 'auto'
 
   let raw: ExtractionResult
+  let usage: UsageTotals = { ...ZERO_USAGE }
   let sectionParse = false
   let splitParse = false
   let sectionChunkCount: number | undefined
@@ -91,18 +109,24 @@ export async function runPipeline(
       onProgress: opts.onProgress,
     })
     raw = sectioned
+    usage = sectioned.usage
     sectionParse = true
     sectionChunkCount = sectioned.chunkCount
   } else if (requested === 'split' || requested === 'auto') {
     const merged = await readSplit(image, spec, backend)
     if (merged) {
-      raw = merged
+      raw = merged.result
+      usage = merged.usage
       splitParse = true
     } else {
-      raw = await readWhole(image, spec, backend)
+      const whole = await readWhole(image, spec, backend)
+      raw = whole.result
+      usage = whole.usage
     }
   } else {
-    raw = await readWhole(image, spec, backend)
+    const whole = await readWhole(image, spec, backend)
+    raw = whole.result
+    usage = whole.usage
   }
 
   const normalized = normalizeYears(spec, raw, opts.now)
@@ -110,6 +134,7 @@ export async function runPipeline(
 
   return {
     ...validated,
+    usage,
     raw: normalized.result,
     yearCorrection:
       normalized.correctedFrom !== undefined

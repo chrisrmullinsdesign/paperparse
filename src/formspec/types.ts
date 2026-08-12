@@ -57,6 +57,19 @@ export interface LayoutSpec {
   /** Blocks in resolution order — earlier entries win. */
   blocks: LayoutBlock[]
   /**
+   * Where the document-level header sits — the printed or handwritten date at the
+   * top of the form.
+   *
+   * Declare this whenever the rows carry partial dates (a `10/28` with no year).
+   * Section crops show the model ten rows and nothing else, so the year that lives
+   * in the header is simply not in frame; without it the model has to guess, and
+   * a plausible guess is indistinguishable from a correct one downstream.
+   *
+   * When set, sectioned extraction spends one extra small request reading this
+   * region and passes the result into every section prompt as context.
+   */
+  headerRegion?: NormRect
+  /**
    * Vertical padding applied to a single-row crop, as a fraction of row pitch.
    * Handwriting routinely overflows its printed row; without padding the
    * ascenders and descenders get clipped.
@@ -84,6 +97,18 @@ export interface FieldSpec {
    * extraction prompt, and their columns are targets for redaction.
    */
   pii?: boolean
+  /**
+   * Horizontal extent of this field's printed column, as a fraction of the
+   * containing block's width — `[0, 1]` spans the block, `[0.58, 0.78]` is a column
+   * a bit right of centre.
+   *
+   * Optional, and unused by the vision backends: a vision model reads the columns
+   * from the image. It is what lets a **geometric** backend work at all — an OCR or
+   * document-AI service returns words with bounding boxes and no idea which of them
+   * is a departure date, and this is the mapping that answers that. Declare it if
+   * you intend to run anything other than a vision model against the form.
+   */
+  column?: [number, number]
 }
 
 /** The field that identifies a row — the printed row number, ID, or line number. */

@@ -81,6 +81,46 @@ export function toIsoDate(value: unknown): string | null {
   return null
 }
 
+/**
+ * Resolve a year-less date like `10/28` against the document's own date.
+ *
+ * A vision model does this implicitly — it can see the header and the row at once.
+ * A geometric backend cannot: it reads a cell, and the year lives two hundred pixels
+ * away in a region it has no reason to associate with this row. So the inference
+ * becomes explicit here, which makes it testable, which is an improvement.
+ *
+ * The rollover rule matters. A sheet dated 28 December carrying an entry for `01/03`
+ * means next January, not one that already passed. Anything more than a season
+ * behind the document date is read as the following year.
+ */
+export function resolvePartialDate(value: string, documentDate: string | null): string | null {
+  const m = value.trim().match(/^(\d{1,2})\s*[/.-]\s*(\d{1,2})$/)
+  if (!m) return null
+  if (!documentDate || !ISO_DATE_RE.test(documentDate)) return null
+
+  const month = parseInt(m[1], 10)
+  const day = parseInt(m[2], 10)
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+
+  const docYear = parseInt(documentDate.slice(0, 4), 10)
+  const build = (year: number) => `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+
+  const candidate = build(docYear)
+  // Reject dates the calendar doesn't have (31 Feb) rather than letting Date roll over.
+  const parsed = new Date(`${candidate}T00:00:00Z`)
+  if (Number.isNaN(parsed.getTime()) || parsed.getUTCDate() !== day) return null
+
+  const docMs = new Date(`${documentDate}T00:00:00Z`).getTime()
+  const gapDays = (docMs - parsed.getTime()) / 86_400_000
+  if (gapDays > 120) {
+    const next = build(docYear + 1)
+    const nextParsed = new Date(`${next}T00:00:00Z`)
+    if (!Number.isNaN(nextParsed.getTime()) && nextParsed.getUTCDate() === day) return next
+  }
+
+  return candidate
+}
+
 function parseField(spec: FieldSpec, value: unknown): { ok: true; value: string | number } | { ok: false } {
   switch (spec.type) {
     case 'integer': {

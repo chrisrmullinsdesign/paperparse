@@ -175,6 +175,19 @@ describe('normalizeYears', () => {
     expect(out.result.rows[0].fields.date_in).toBe('2021-06-11')
   })
 
+  it('does not fire when the header is unreadable, however tempting the grid looks', () => {
+    // Regression guard. Sectioned reads never see the header, so document_date is
+    // null on every one of them. Treating that as licence to correct rewrote a
+    // form's correct 2024 dates to 2026 — every field wrong, every row key right.
+    const out = normalizeYears(
+      spec,
+      result([row({ fields: { date_in: '2024-10-26', date_out: '2024-10-28' } })], null),
+      now,
+    )
+    expect(out.correctedFrom).toBeUndefined()
+    expect(out.result.rows[0].fields.date_in).toBe('2024-10-26')
+  })
+
   it('does not fire when years are mixed', () => {
     const out = normalizeYears(
       spec,
@@ -190,10 +203,10 @@ describe('normalizeYears', () => {
     expect(out.correctedFrom).toBeUndefined()
   })
 
-  it('does not fire beyond a plausible two-digit slip', () => {
+  it('does not fire beyond a plausible two-digit slip, even with a disagreeing header', () => {
     const out = normalizeYears(
       spec,
-      result([row({ fields: { date_in: '2009-05-09', date_out: '2009-05-11' } })], null),
+      result([row({ fields: { date_in: '2009-05-09', date_out: '2009-05-11' } })], '2026-05-08'),
       now,
     )
     expect(out.correctedFrom).toBeUndefined()
@@ -202,7 +215,7 @@ describe('normalizeYears', () => {
   it('does not fire on current-year dates', () => {
     const out = normalizeYears(
       spec,
-      result([row({ fields: { date_in: '2026-05-09', date_out: '2026-05-11' } })], null),
+      result([row({ fields: { date_in: '2026-05-09', date_out: '2026-05-11' } })], '2026-05-08'),
       now,
     )
     expect(out.correctedFrom).toBeUndefined()

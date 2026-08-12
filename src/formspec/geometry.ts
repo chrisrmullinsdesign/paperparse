@@ -157,3 +157,54 @@ export function allValidKeys(spec: FormSpec): number[] {
 export function isValidRowKey(spec: FormSpec, key: number): boolean {
   return Number.isFinite(key) && spec.rowKey.ranges.some((r) => inRange(key, r))
 }
+
+/** Which block, if any, contains a normalized point. Declaration order applies. */
+export function blockAtPoint(spec: FormSpec, x: number, y: number): LayoutBlock | null {
+  for (const block of spec.layout.blocks) {
+    if (x < block.x[0] || x > block.x[1]) continue
+    if (y < block.y[0] || y > block.y[1]) continue
+    // The point is inside the block's box, but the slot it lands in may belong to a
+    // block declared earlier — a band overlaying a column owns its rows.
+    const slot = Math.floor((y - block.y[0]) / rowPitch(block))
+    const key = block.keys.from + slot - (block.slotOffset ?? 0)
+    if (!inRange(key, block.keys)) continue
+    if (blockForKey(spec, key)?.id !== block.id) continue
+    return block
+  }
+  return null
+}
+
+/**
+ * Inverse of `rectForKey`: which row does this point on the page fall in?
+ *
+ * The forward direction serves cropping; this one serves any backend that returns
+ * words with bounding boxes and leaves you to work out what they mean. Same layout
+ * declaration, read the other way.
+ */
+export function keyAtNormPoint(spec: FormSpec, x: number, y: number): number | null {
+  const block = blockAtPoint(spec, x, y)
+  if (!block) return null
+  const slot = Math.floor((y - block.y[0]) / rowPitch(block))
+  const key = block.keys.from + slot - (block.slotOffset ?? 0)
+  return inRange(key, block.keys) ? key : null
+}
+
+/**
+ * Which field's column contains this point, given the block it sits in.
+ *
+ * Returns null for points in the row-number gutter or any gap between declared
+ * columns — those are printed furniture, not data.
+ */
+export function fieldAtNormPoint(spec: FormSpec, x: number, y: number): string | null {
+  const block = blockAtPoint(spec, x, y)
+  if (!block) return null
+  const width = block.x[1] - block.x[0]
+  if (width <= 0) return null
+  const rel = (x - block.x[0]) / width
+
+  for (const field of spec.fields) {
+    if (!field.column) continue
+    if (rel >= field.column[0] && rel < field.column[1]) return field.name
+  }
+  return null
+}

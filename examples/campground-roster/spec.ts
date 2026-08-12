@@ -67,35 +67,47 @@ Each row has: the printed site number, then handwritten columns for last name, p
   },
 
   fields: [
+    // `column` is the field's horizontal extent as a fraction of its block's width.
+    // The vision backends ignore it — they read the columns off the image. It exists
+    // for backends that get words and bounding boxes and nothing else. The gutter
+    // below 0.10 is the printed site number and belongs to no field.
     {
       name: 'last_name',
       type: 'string',
       description: 'Handwritten last name of the camper.',
       pii: true,
+      column: [0.10, 0.36],
     },
     {
       name: 'permit_number',
       type: 'string',
       description: 'Handwritten permit number.',
       pii: true,
+      column: [0.36, 0.58],
     },
     {
       name: 'date_in',
       type: 'iso-date',
       description:
         'Arrival date, as YYYY-MM-DD. The paper usually shows month/day only — take the year from the sheet header, or from the other dates on the sheet if the header is illegible.',
+      column: [0.58, 0.78],
     },
     {
       name: 'date_out',
       type: 'iso-date',
       description:
         'Departure date, as YYYY-MM-DD. This is the day the site frees up, so it is always after the arrival date.',
+      column: [0.78, 1.0],
     },
   ],
 
   layout: {
     rowPadFraction: 0.1,
     sectionChunkRows: 10,
+
+    // The "as of <date>" line above the grid. Rows carry month/day only, so without
+    // this the year is absent from every section crop.
+    headerRegion: { x: 0, y: 0, w: 1, h: BODY_TOP },
 
     // Order is precedence. The river-bend band must be declared before the right
     // column, whose numeric range contains it.

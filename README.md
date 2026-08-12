@@ -21,15 +21,17 @@ Left: a clean capture. Right: the same form with glare, skew, blur and a shadow 
 
 Hand a vision model a photograph of a dense 100-row grid and ask it to transcribe every row. It will often return twenty plausible rows, a confident note, and no indication that it summarized instead of transcribing. Nothing in the response distinguishes that from success.
 
-You can't prompt your way out of it reliably, because the failure is structural: a full-page grid *affords* summarization. So the pipeline removes the affordance.
+The theory behind this pipeline was that you can't prompt your way out of that reliably, because the failure is structural — a full-page grid *affords* summarization — so the fix is to remove the affordance by cropping the form into bands and reading ten rows at a time.
+
+**The benchmark did not support that.** On the synthetic corpus, sectioning came last: 82% row recall against 98% for a single whole-page request, at thirteen requests instead of one. The numbers and what I think they mean are [below](#benchmarking). The machinery is still here, and still the right tool for a genuinely dense capture — but it is off by default, and the honest version of this README is one that says so.
 
 ```
 photograph
    │
    ├─ prepare ........ strip EXIF, optional enhance, optional downscale
    │
-   ├─ read ........... crop into printed bands via FormSpec geometry,
-   │                   one request per band — ten rows at a time
+   ├─ read ........... whole page, split in half, or cropped into printed
+   │                   bands via FormSpec geometry (`whole` by default)
    │
    ├─ normalize ...... catch the two-digit-year slip before it looks like history
    │
@@ -38,7 +40,7 @@ photograph
                        and record every drop with a reason
 ```
 
-There is no plausible summary of ten rows that isn't just the ten rows.
+The argument for it is that there is no plausible summary of ten rows that isn't just the ten rows. The argument against it is the measurement.
 
 ---
 
@@ -81,9 +83,9 @@ Note `[81-89]` stopping at 89 and `[99-100]` picking up after: that falls out of
 
 | Area | What it does |
 | --- | --- |
-| `src/formspec/` | The spec type and the geometry engine — key → normalized rect, chunk derivation |
+| `src/formspec/` | The spec type and the geometry engine — key → rect, rect → key, chunk derivation |
 | `src/image/` | EXIF stripping, optional enhancement, cropping, portrait splitting with overlap-aware merge |
-| `src/extract/` | Prompt + JSON-schema generation from a spec, the backend interface, the Anthropic backend, section runner |
+| `src/extract/` | Prompt + JSON-schema generation, the backend interface, the Anthropic (vision) and Textract (geometric) backends, section runner, escalation |
 | `src/validate/` | Field typing, cross-field rules, confidence routing, two-digit-year correction |
 | `src/eval/` | Multiset diff, precision/recall/F1, the benchmark harness, review-question generation |
 | `src/redact/` | Locate and blur PII columns to produce a shareable copy of a form photograph |
@@ -96,7 +98,7 @@ Note `[81-89]` stopping at 89 and `[99-100]` picking up after: that falls out of
 
 ```bash
 npm install
-npm test                 # 96 tests, no API key required
+npm test                 # 123 tests, no API key required
 npm run fixtures         # render the synthetic corpus to fixtures/out/
 ```
 
@@ -136,13 +138,21 @@ import { runPipeline, AnthropicBackend } from 'paperparse'
 import { campgroundRosterSpec, campgroundRosterRules } from './examples/campground-roster/spec.js'
 
 const result = await runPipeline(imageBuffer, campgroundRosterSpec, new AnthropicBackend(), {
-  readMode: 'sections',
   rules: campgroundRosterRules,
 })
 
 result.rows           // confident, validated, typed
 result.uncertainRows  // the review queue
 result.stats.drops    // every discarded row, with a reason
+result.usage          // requests and tokens this cost
+```
+
+Or read it cheaply and spend the vision model only where the cheap reader struggled:
+
+```ts
+import { TextractBackend, EscalatingBackend, AnthropicBackend } from 'paperparse'
+
+const backend = new EscalatingBackend(new TextractBackend(), new AnthropicBackend())
 ```
 
 ---
@@ -172,20 +182,38 @@ The harness runs a labelled corpus through several configurations and reports co
 ```bash
 npm run fixtures
 npm run bench -- --limit 3            # start small; this spends real tokens
-npm run bench                         # whole vs. split vs. sections, full corpus
+npm run bench                         # whole vs. split vs. sections
+npm run bench -- --textract --modes whole   # add the geometric backend
 ```
 
-```
-| Configuration        | Row recall | Row precision | Exact F1 | Field accuracy | Avg / image |
-| -------------------- | ---------- | ------------- | -------- | -------------- | ----------- |
-| anthropic / whole    |            |               |          |                |             |
-| anthropic / split    |            |               |          |                |             |
-| anthropic / sections |            |               |          |                |             |
-```
+All figures below: the 9-image synthetic corpus, 488 gold rows, Claude Opus 5 at `effort: high`, single pass.
 
-**The table is empty on purpose.** Publishing numbers I hadn't measured would defeat the point of shipping the harness. Run it and fill it in — that is the intended workflow.
+**Read modes, vision backend**
 
-A few deliberate choices in how it scores:
+| Configuration | Row recall | Row precision | Exact F1 | Field accuracy | Requests | Cost / image | Avg / image |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| anthropic / whole | 98.2% | 98.2% | 95.5% | 97.6% | 1 | $0.119 | 36.4s |
+| anthropic / split | 93.9% | 100.0% | 96.8% | 100.0% | 2 | $0.135 | 24.7s |
+| anthropic / sections | 82.4% | 97.8% | 87.2% | 97.9% | 13 | $0.315 | 37.6s |
+
+**Backends, whole-page**
+
+| Configuration | Row recall | Row precision | Exact F1 | Field accuracy | Requests | Cost / image | Avg / image |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| anthropic / whole | 100.0% | 100.0% | 100.0% | 100.0% | 1 | $0.115 | 51.3s |
+| textract / whole | 93.4% | 99.1% | 96.2% | 100.0% | 1 | ~$0.015 † | **4.0s** |
+
+† The harness prices tokens; Textract bills per page. Its cost column reads `$0.000` because the number it knows is genuinely zero — the ~$0.015 is the published `AnalyzeDocument` TABLES rate, quoted here rather than computed.
+
+### What the numbers say
+
+**Sectioning lost, and it was the hypothesis this repo was built on.** Worst recall of the three read modes, 2.6× the cost, thirteen requests against one. Two things plausibly explain it, and I can only argue for the first: the crops are small, and a model reading ten rows in isolation appears to hedge — 97.8% precision against 82.4% recall is the signature of dropping rows it isn't sure about rather than misreading them. The second is that these are *clean synthetic renders*, and the summarization failure that motivated sectioning may simply not occur on them. The technique was originally developed against real phone photographs of a real clipboard — glare, angle, thumb over the corner. **That is a limitation of this corpus, not a vindication of the technique.** Testing it needs real photographs and a real gold set, which this repo does not have.
+
+**A cheap geometric backend is closer than expected.** Textract gives up ~7 points of recall and returns in 4 seconds instead of 51, at roughly an eighth of the cost, with identical field accuracy once partial dates are resolved against the header. For a high-volume pipeline that ratio is hard to argue with.
+
+**Run-to-run variance is real and worth stating.** `anthropic / whole` scored 98.2% in one run and 100.0% in another on the identical corpus; a single image measured 100% / 80.8% / 100% recall across three runs. These are single-pass numbers, not averages over repeats. Treat differences under a few points as noise — including the ones in these tables.
+
+### How it scores
 
 - **Multiset, not set.** A row emitted three times is a different mistake from a row emitted once. Counting with multiplicity captures both.
 - **Two diffs, reported separately.** Key-only ("did we find the row") and exact ("did we read it right") fail for different reasons and have different fixes — chunking versus crop quality.
@@ -223,6 +251,22 @@ It renders from the same `FormSpec` the pipeline reads, so generated rows land e
 
 ---
 
+## Prior art, and when not to use this
+
+This is not a general-purpose document extractor, and for most form-extraction problems it is the wrong tool.
+
+**Reach for something else when the layout is unknown or varies.** AWS Textract, Azure Document Intelligence and Google Document AI detect tables and form fields automatically, are trained on enormous handwriting corpora, and return per-word confidence and bounding boxes. On the open-source side, [Surya](https://github.com/datalab-to/surya), [Docling](https://github.com/docling-project/docling) and [Marker](https://github.com/datalab-to/marker) do layout analysis and table-structure recognition; render-the-page-and-ask-a-vision-model tools cover the general case with far less setup. All of them will get you further, faster, on an arbitrary document.
+
+paperparse assumes the opposite situation: **one form, whose layout you know, that you process a lot of.** That assumption is the whole design. It's what lets the pipeline crop to a band it can name, reject a row that violates a rule the form guarantees, and score itself against a gold set. A generic extractor will find you a table; it won't know that rows 90–98 are the River Bend band, that G4 means key 104, or that a 40-night stay is impossible on this sheet. Those priors are what turn a plausible transcription into a checkable one.
+
+Known gaps, stated plainly: geometry is hand-authored rather than detected, there is no OCR fallback or non-LLM path, no PDF or multi-page support, one backend, and one worked example. It has not been benchmarked against any of the tools above — the numbers in this README compare *its own read modes* to each other, nothing more.
+
+**The obvious next thing** is a second backend built on a document-AI service rather than a vision model — Textract's `TABLES` mode, say. On a printed grid it returns cell structure natively, costs roughly an order of magnitude less per page, and gives *calibrated per-word confidence with bounding boxes*, where a vision model gives you a self-report that can be confidently wrong. That last point is the interesting one: it would make the review queue meaningfully better, because you could highlight the exact cell rather than the row.
+
+The likely end state isn't one or the other but cheap deterministic extraction with the vision model escalated to only for low-confidence cells. `Backend` exists so that comparison can be run rather than argued about — same gold set, same metrics, same table.
+
+---
+
 ## Security
 
 This library's whole job is decoding images from untrusted sources, so the image decoder is part of the attack surface, not just a dependency.
@@ -237,9 +281,11 @@ This library's whole job is decoding images from untrusted sources, so the image
 
 ## Honesty about what's verified
 
-- **96 tests, no network.** Geometry, chunk derivation, validation, year correction, diff/metrics, review-question generation, prompt and schema construction, split merging, and the full pipeline against a stub backend that answers from the generator's own ground truth.
-- **The live Anthropic path is compile-verified, not executed.** It typechecks against `@anthropic-ai/sdk` 0.116, but it has not been run against the API — I had no credentials in the environment where this was built. Expect to shake out something on first contact.
-- **No benchmark numbers are published** because none have been measured. See above.
+- **123 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
+- **Both backends have been run against their live APIs**, as has the redaction pass. The numbers in the benchmark tables are recorded runs, not estimates.
+- **Every number here is a single pass over 9 synthetic images.** Not averaged over repeats, and the same configuration has moved ~2 points between runs. Differences of a few points are noise.
+- **The corpus is synthetic and clean.** That is what makes it reproducible, and it is also its main limitation — see the sectioning discussion above. Nothing here has been measured against real photographs.
+- **Not measured against any other tool.** See *Prior art* above.
 
 ---
 

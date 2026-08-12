@@ -21,7 +21,9 @@ import type { RawRow, ValidatedRow } from '../src/types.js'
  */
 class StubBackend implements Backend {
   readonly name = 'stub'
-  calls: Array<readonly number[] | 'whole'> = []
+  calls: Array<readonly number[] | 'whole' | 'header'> = []
+  /** Prompts seen, so tests can assert what context sections were given. */
+  prompts: string[] = []
 
   constructor(
     private readonly truth: ValidatedRow[],
@@ -32,7 +34,23 @@ class StubBackend implements Backend {
     return true
   }
 
+  /** Chunk requests only — excludes the header pass. */
+  get sectionCalls(): number {
+    return this.calls.filter((c) => Array.isArray(c)).length
+  }
+
   async extract(req: ExtractRequest): Promise<ExtractResponse> {
+    this.prompts.push(req.prompt)
+
+    // The header pass carries no sectionKeys and asks for no rows.
+    if (!req.sectionKeys && /Read only the document-level date/.test(req.prompt)) {
+      this.calls.push('header')
+      return {
+        result: { document_date: '2024-10-25', rows: [], notes: '', looks_like_expected_form: true },
+        model: 'stub-1',
+      }
+    }
+
     this.calls.push(req.sectionKeys ?? 'whole')
 
     if (req.sectionKeys?.some((k) => this.failKeys.has(k))) {
@@ -64,9 +82,46 @@ describe('extractBySections', () => {
     const out = await extractBySections(sample.image, spec, backend)
 
     expect(out.chunkCount).toBe(12)
-    expect(backend.calls).toHaveLength(12)
+    expect(backend.sectionCalls).toBe(12)
     expect(out.failedChunks).toHaveLength(0)
     expect(out.rows.map((r) => r.row_key)).toEqual(sample.rows.map((r) => r.rowKey))
+  })
+
+  it('reads the header once and feeds its date to every section prompt', async () => {
+    // Section crops never contain the header, so without this the year is absent
+    // from every request and the model has to guess it.
+    const sample = await generateSample(spec, { seed: 42, fillRate: 0.4 })
+    const backend = new StubBackend(sample.rows)
+
+    const out = await extractBySections(sample.image, spec, backend)
+
+    expect(backend.calls.filter((c) => c === 'header')).toHaveLength(1)
+    expect(out.document_date).toBe('2024-10-25')
+
+    const sectionPrompts = backend.prompts.filter((p) => /You are looking at a crop/.test(p))
+    expect(sectionPrompts).toHaveLength(12)
+    for (const prompt of sectionPrompts) expect(prompt).toContain('2024-10-25')
+  })
+
+  it('skips the header pass when a date is supplied', async () => {
+    const sample = await generateSample(spec, { seed: 42, fillRate: 0.4 })
+    const backend = new StubBackend(sample.rows)
+
+    await extractBySections(sample.image, spec, backend, { documentDate: '2023-07-04' })
+
+    expect(backend.calls.filter((c) => c === 'header')).toHaveLength(0)
+    expect(backend.prompts.some((p) => p.includes('2023-07-04'))).toBe(true)
+  })
+
+  it('tells sections to hedge when no header is available', async () => {
+    const sample = await generateSample(spec, { seed: 42, fillRate: 0.4 })
+    const backend = new StubBackend(sample.rows)
+
+    await extractBySections(sample.image, spec, backend, { documentDate: null })
+
+    expect(backend.calls.filter((c) => c === 'header')).toHaveLength(0)
+    const sectionPrompts = backend.prompts.filter((p) => /You are looking at a crop/.test(p))
+    for (const prompt of sectionPrompts) expect(prompt).toContain('header is not visible')
   })
 
   it('returns rows in row-key order regardless of chunk completion order', async () => {
@@ -132,6 +187,7 @@ describe('runPipeline', () => {
 
     expect(result.meta.sectionParse).toBe(true)
     expect(result.meta.sectionChunkCount).toBe(12)
+    expect(result.usage.requests).toBe(13) // 12 chunks + the header pass
     expect(result.stats.droppedRowCount).toBe(0)
     expect(result.rows.map((r) => r.rowKey)).toEqual(sample.rows.map((r) => r.rowKey))
     expect(result.rows[0].fields.date_in).toBe(sample.rows[0].fields.date_in)

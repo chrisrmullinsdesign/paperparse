@@ -6,10 +6,20 @@
  * Nothing downstream can tell that apart from a genuinely old form — the dates are
  * internally consistent and individually plausible.
  *
- * The correction is narrow on purpose. It fires only when *every* date shares one
- * past year, and it stands down when the document's own printed header agrees with
- * that year — because then the form really is old, and rewriting it would silently
- * corrupt an archival record.
+ * The correction is narrow on purpose, and it requires **positive evidence**: a
+ * legible header year that disagrees with the grid. Two ways that matters:
+ *
+ *   - Header agrees with the grid → the form really is old. Rewriting it would
+ *     silently corrupt an archival record.
+ *   - Header is unknown → we have no evidence either way, and must not act. This
+ *     is not hypothetical. Section crops don't include the header, so `document_date`
+ *     comes back null on every sectioned read; an earlier version of this function
+ *     treated that as licence to correct and rewrote a form's correct 2024 dates to
+ *     2026 — every field wrong, with the row keys all still right, which is about
+ *     the most misleading failure shape available.
+ *
+ * A wrong year that survives to review is recoverable. A correct year silently
+ * rewritten is not.
  */
 
 import type { ExtractionResult } from '../types.js'
@@ -65,10 +75,10 @@ export function normalizeYears(
   if (only >= currentYear) return { result }
   if (currentYear - only > MAX_PLAUSIBLE_SLIP_YEARS) return { result }
 
-  // The header is the tiebreaker. If the form itself is dated to the same past year,
-  // the grid is consistent with it and this is an archival document, not a misread.
+  // The header is the evidence, not merely a tiebreaker. Absent a legible one there
+  // is nothing to contradict the grid, so leave it alone.
   const headerYear = yearOf(result.document_date)
-  if (headerYear === only) return { result }
+  if (headerYear === null || headerYear === only) return { result }
 
   return {
     result: {
