@@ -261,7 +261,10 @@ export async function generateSample(spec: FormSpec, opts: GenerateOptions): Pro
   const cells = buildRows(spec, rand, fillRate, base)
   const svg = renderSvg(spec, cells, documentDate, W, H, rand)
 
-  let image = await sharp(Buffer.from(svg)).jpeg({ quality: 92, mozjpeg: true }).toBuffer()
+  // Annotated rather than inferred: sharp's `toBuffer()` returns the narrower
+  // `Buffer<ArrayBuffer>`, which would fix this binding's type and reject the
+  // wider `Buffer` that `applyAugmentations` hands back on the next line.
+  let image: Buffer = await sharp(Buffer.from(svg)).jpeg({ quality: 92, mozjpeg: true }).toBuffer()
   if (opts.augment?.length) image = await applyAugmentations(image, opts.augment, W, H, rand)
   image = await sharp(image).jpeg({ quality: 88, mozjpeg: true }).toBuffer()
 
