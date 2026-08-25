@@ -276,3 +276,75 @@ describe('assembleAnchored', () => {
     expect(rows[0].confidence).toBe('high')
   })
 })
+
+describe('reach', () => {
+  /**
+   * A page laid out at the spec's own declared coordinates.
+   *
+   * Every other test on this file builds rows from hand-picked offsets, which is
+   * what let a too-small `reach` survive the whole suite: the offsets were all
+   * comfortably inside it. This one puts the cells exactly where the FormSpec says
+   * the printed columns are, which is the only arrangement that can catch a bound
+   * that is narrower than the form.
+   */
+  function pageAtDeclaredColumns(blockId: string, from: number, to: number): AnchorWord[] {
+    const block = spec.layout.blocks.find((b) => b.id === blockId)!
+    const width = block.x[1] - block.x[0]
+    const pitch = (block.y[1] - block.y[0]) / block.rowSlots
+    const words: AnchorWord[] = []
+
+    for (let key = from; key <= to; key++) {
+      const cy = block.y[0] + (key - block.keys.from + 0.5) * pitch
+      const gutterRx = block.x[0] + width * 0.06
+      words.push({ text: String(key), confidence: 99, cx: gutterRx - 0.01, cy, rx: gutterRx, h: 0.008 })
+
+      for (const f of spec.fields) {
+        if (!f.column) continue
+        const cx = block.x[0] + width * ((f.column[0] + f.column[1]) / 2)
+        // Both PII columns are typed `string`, so distinguish them by name — the
+        // point of the fixture is the x positions, but the values still have to be
+        // the ones a reader would see in each column.
+        const text =
+          f.name === 'date_in' ? '10/31'
+          : f.name === 'date_out' ? '11/05'
+          : f.name === 'permit_number' ? '57392'
+          : 'Ellsworth'
+        words.push({ text, confidence: 99, cx, cy, rx: cx + 0.02, h: 0.008 })
+      }
+    }
+    return words
+  }
+
+  it('reaches the rightmost declared column, not a constant short of it', () => {
+    // The regression: `reach` was 0.34 against blocks 0.47 wide, so the rightmost
+    // column at 0.438 fell outside every row's window. Rows anchored perfectly and
+    // came back one cell short, and the validator dropped all of them for a missing
+    // required field — a total failure that looks like a parsing problem.
+    const rows = anchoredRows(spec, pageAtDeclaredColumns('main-left', 1, 50))
+    const row = rows.find((r) => r.rowKey === 20)!
+    expect(row.cells.map((c) => c.text)).toEqual(['Ellsworth', '57392', '10/31', '11/05'])
+  })
+
+  it('fills every non-PII field for a row laid out at the declared columns', () => {
+    const rows = assembleAnchored(spec, pageAtDeclaredColumns('main-left', 1, 50))
+    expect(rows.length).toBe(50)
+    for (const row of rows) {
+      for (const f of spec.fields) {
+        if (f.pii) continue
+        expect(row.fields[f.name], `${f.name} on row ${row.row_key}`).toBeDefined()
+      }
+    }
+  })
+
+  it('does not reach into the neighbouring column', () => {
+    // The opposite hazard. A reach wide enough to clear its own block must still
+    // stop before the next one, or a two-column form folds the right column's cells
+    // into the left column's rows.
+    const words = [...pageAtDeclaredColumns('main-left', 1, 50), ...pageAtDeclaredColumns('main-right', 51, 100)]
+    const rows = anchoredRows(spec, words)
+    const left = rows.find((r) => r.rowKey === 20)!
+    expect(left.cells.length).toBe(4)
+    const rightEdge = spec.layout.blocks.find((b) => b.id === 'main-left')!.x[1]
+    for (const c of left.cells) expect(c.cx).toBeLessThan(rightEdge)
+  })
+})

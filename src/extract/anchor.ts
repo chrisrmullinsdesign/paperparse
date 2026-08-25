@@ -26,7 +26,7 @@
  * Every rule below exists because something failed without it; the comments say which.
  */
 
-import type { FormSpec } from '../formspec/types.js'
+import type { FormSpec, NormRect } from '../formspec/types.js'
 
 /** A recognised word, normalized. `rx` is the right edge — see `findGutters`. */
 export interface AnchorWord {
@@ -36,6 +36,30 @@ export interface AnchorWord {
   cx: number
   cy: number
   rx: number
+  /**
+   * Word height as a fraction of page height.
+   *
+   * Nothing in the anchoring maths uses it — rows are resolved from `cy` and the
+   * fitted pitch. It is carried so a caller can reconstruct the word's box and hand
+   * a reviewer the actual pixels, which is the whole reason to prefer a backend
+   * that returns coordinates. Optional because the anchoring core is tested against
+   * hand-written word lists that have no reason to declare one.
+   */
+  h?: number
+}
+
+/**
+ * The word's box, rebuilt from what `AnchorWord` keeps.
+ *
+ * `cx` is the centre and `rx` the right edge, so the width is twice their gap and
+ * the left edge follows. Height falls back to a typical printed line when the word
+ * didn't carry one — a slightly wrong box still points at the right cell, which is
+ * all a review crop needs.
+ */
+export function rectOfWord(word: AnchorWord, fallbackHeight = 0.012): NormRect {
+  const w = Math.max(0, 2 * (word.rx - word.cx))
+  const h = word.h ?? fallbackHeight
+  return { x: word.rx - w, y: word.cy - h / 2, w, h }
 }
 
 export interface Gutter {
@@ -64,11 +88,38 @@ export interface AnchorOptions {
   maxGutters?: number
   /** Row band half-height, as a fraction of fitted pitch. */
   bandFraction?: number
-  /** How far right of the gutter a row's cells can sit, in page fractions. */
+  /**
+   * How far right of the gutter a row's cells can sit, in page fractions.
+   *
+   * Defaults to the widest block the spec declares — see `defaultReach`. Override
+   * only for a form whose rows genuinely run past their own block.
+   */
   reach?: number
 }
 
-const DEFAULTS = { minAnchors: 8, maxGutters: 2, bandFraction: 0.55, reach: 0.34 }
+const DEFAULTS = { minAnchors: 8, maxGutters: 2, bandFraction: 0.55 }
+
+/**
+ * How far a row's cells may sit from its gutter, derived from the form.
+ *
+ * A row cannot extend past the block that contains it, so the widest declared block
+ * is the natural bound — and unlike a constant, it is right for every form rather
+ * than for the one it was tuned on.
+ *
+ * The constant it replaces was 0.34, against blocks 0.47 wide on the worked example.
+ * The rightmost column sat at 0.438 and was silently filtered out of every row, so
+ * every row lost a required field and the validator dropped all of them. The failure
+ * is invisible from inside anchoring: the rows anchor perfectly, they just come back
+ * one cell short.
+ *
+ * Reaching *too far* is the opposite hazard — a two-column form would pull the next
+ * column's cells into this row. Block width lands inside the gap between columns,
+ * which is why it is the bound rather than a multiple of it.
+ */
+export function defaultReach(spec: FormSpec): number {
+  const widest = Math.max(0, ...spec.layout.blocks.map((b) => b.x[1] - b.x[0]))
+  return widest > 0 ? widest : 0.34
+}
 
 /** Parse a token as a row key, tolerating a struck-through marker like `/3`. */
 export function asRowKey(spec: FormSpec, text: string): { key: number; struck: boolean } | null {
@@ -215,7 +266,8 @@ export function anchoredRows(
   words: readonly AnchorWord[],
   opts: AnchorOptions = {},
 ): AnchoredRow[] {
-  const { bandFraction, reach } = { ...DEFAULTS, ...opts }
+  const { bandFraction } = { ...DEFAULTS, ...opts }
+  const reach = opts.reach ?? defaultReach(spec)
   const gutters = findGutters(spec, words, opts)
   const out: AnchoredRow[] = []
   const seen = new Set<number>()
@@ -258,7 +310,7 @@ export function anchoredLabelRows(
   const label = spec.rowKey.labelPattern
   if (!label) return []
 
-  const { reach } = { ...DEFAULTS, ...opts }
+  const reach = opts.reach ?? defaultReach(spec)
   const re = new RegExp(label.pattern, 'i')
   const out: AnchoredRow[] = []
 
