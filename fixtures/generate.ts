@@ -187,18 +187,41 @@ function renderSvg(spec: FormSpec, cells: Cell[], documentDate: string, W: numbe
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">${parts.join('')}</svg>`
 }
 
+/**
+ * Canonical augmentation order, and the basis for each one's random stream.
+ *
+ * The index is what keys the stream, so a given augmentation draws the same numbers
+ * whichever others are applied alongside it.
+ */
+const AUGMENTATIONS: Augmentation[] = ['glare', 'shadow', 'lowlight', 'skew', 'blur', 'crop']
+
+/**
+ * A random stream belonging to one augmentation.
+ *
+ * They used to share the render's stream and draw from it in application order,
+ * which made each one's severity depend on what came before it. `glare` draws twice
+ * for its centre, so applying it shifted `skew` onto a different angle — and
+ * `worst-case`, which is glare+skew+blur+shadow, drew a near-zero rotation and
+ * scored identically to the clean sheet while `skew` alone cost nineteen points of
+ * recall. The worst case was not the worst case; it was a different case.
+ */
+export function augmentationRng(seed: number, augmentation: Augmentation): () => number {
+  return rng(seed * 1000 + AUGMENTATIONS.indexOf(augmentation) + 1)
+}
+
 /** Capture degradations, applied after render. These are what the pipeline must survive. */
 async function applyAugmentations(
   image: Buffer,
   augment: Augmentation[],
   W: number,
   H: number,
-  rand: () => number,
+  seed: number,
 ): Promise<Buffer> {
   let buf = image
 
   if (augment.includes('glare')) {
     // A bright elliptical wash, as from a clipboard's plastic cover.
+    const rand = augmentationRng(seed, 'glare')
     const cx = W * (0.35 + rand() * 0.3)
     const cy = H * (0.25 + rand() * 0.4)
     const overlay = Buffer.from(
@@ -225,7 +248,7 @@ async function applyAugmentations(
   }
 
   if (augment.includes('skew')) {
-    const angle = (rand() - 0.5) * 4
+    const angle = (augmentationRng(seed, 'skew')() - 0.5) * 4
     buf = await sharp(buf)
       .rotate(angle, { background: '#3b3a36' })
       .resize(W, H, { fit: 'cover', position: 'centre' })
@@ -233,12 +256,12 @@ async function applyAugmentations(
   }
 
   if (augment.includes('blur')) {
-    buf = await sharp(buf).blur(0.8 + rand() * 0.9).toBuffer()
+    buf = await sharp(buf).blur(0.8 + augmentationRng(seed, 'blur')() * 0.9).toBuffer()
   }
 
   if (augment.includes('crop')) {
     // Clip an edge, as when the photographer misses part of the clipboard.
-    const cut = Math.round(W * (0.02 + rand() * 0.04))
+    const cut = Math.round(W * (0.02 + augmentationRng(seed, 'crop')() * 0.04))
     buf = await sharp(buf)
       .extract({ left: cut, top: 0, width: W - cut, height: H })
       .resize(W, H, { fit: 'fill' })
@@ -265,7 +288,7 @@ export async function generateSample(spec: FormSpec, opts: GenerateOptions): Pro
   // `Buffer<ArrayBuffer>`, which would fix this binding's type and reject the
   // wider `Buffer` that `applyAugmentations` hands back on the next line.
   let image: Buffer = await sharp(Buffer.from(svg)).jpeg({ quality: 92, mozjpeg: true }).toBuffer()
-  if (opts.augment?.length) image = await applyAugmentations(image, opts.augment, W, H, rand)
+  if (opts.augment?.length) image = await applyAugmentations(image, opts.augment, W, H, opts.seed)
   image = await sharp(image).jpeg({ quality: 88, mozjpeg: true }).toBuffer()
 
   const rows: ValidatedRow[] = cells.map((c) => ({
@@ -277,15 +300,32 @@ export async function generateSample(spec: FormSpec, opts: GenerateOptions): Pro
   return { image, rows, documentDate }
 }
 
-/** The standard corpus: one clean sample plus one per degradation. */
+/**
+ * The standard corpus: one roster, photographed badly seven ways, plus two densities.
+ *
+ * **Every degradation shares seed 1 and fill rate 0.5, so all seven carry an
+ * identical gold set.** That is the whole point of the arrangement. An earlier
+ * version gave each fixture its own seed, which meant the contents changed along
+ * with the treatment and no score difference could be attributed to either — the
+ * corpus looked like a robustness test and was not one. `sparse` and `full` vary
+ * fill rate deliberately and so have gold sets of their own; they measure density,
+ * not degradation.
+ *
+ * `cropped-edge` is the sharpest of these and worth understanding before reading its
+ * score. The crop takes 2–6% off the *left* edge, which is where the left column's
+ * printed row numbers are. The rows themselves stay fully in frame — names, permits
+ * and dates all legible — but the number that identifies them is gone, and anchored
+ * resolution has nothing to anchor on. It is not a hard-to-read image. It is the one
+ * thing the anchoring strategy cannot survive, by construction.
+ */
 export const STANDARD_CORPUS: Array<{ id: string; opts: GenerateOptions }> = [
   { id: 'clean', opts: { seed: 1, fillRate: 0.5 } },
-  { id: 'sparse', opts: { seed: 2, fillRate: 0.15 } },
-  { id: 'full', opts: { seed: 3, fillRate: 0.9 } },
-  { id: 'glare', opts: { seed: 4, fillRate: 0.5, augment: ['glare'] } },
-  { id: 'skew', opts: { seed: 5, fillRate: 0.5, augment: ['skew'] } },
-  { id: 'blur', opts: { seed: 6, fillRate: 0.5, augment: ['blur'] } },
-  { id: 'lowlight-shadow', opts: { seed: 7, fillRate: 0.5, augment: ['lowlight', 'shadow'] } },
-  { id: 'cropped-edge', opts: { seed: 8, fillRate: 0.5, augment: ['crop'] } },
-  { id: 'worst-case', opts: { seed: 9, fillRate: 0.6, augment: ['glare', 'skew', 'blur', 'shadow'] } },
+  { id: 'glare', opts: { seed: 1, fillRate: 0.5, augment: ['glare'] } },
+  { id: 'skew', opts: { seed: 1, fillRate: 0.5, augment: ['skew'] } },
+  { id: 'blur', opts: { seed: 1, fillRate: 0.5, augment: ['blur'] } },
+  { id: 'lowlight-shadow', opts: { seed: 1, fillRate: 0.5, augment: ['lowlight', 'shadow'] } },
+  { id: 'cropped-edge', opts: { seed: 1, fillRate: 0.5, augment: ['crop'] } },
+  { id: 'worst-case', opts: { seed: 1, fillRate: 0.5, augment: ['glare', 'skew', 'blur', 'shadow'] } },
+  { id: 'sparse', opts: { seed: 1, fillRate: 0.15 } },
+  { id: 'full', opts: { seed: 1, fillRate: 0.9 } },
 ]

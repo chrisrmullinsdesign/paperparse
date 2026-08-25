@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { multisetDiff, fieldAccuracy, rowKeySignature, rowSignature } from '../src/eval/diff.js'
 import { prf, microAverage } from '../src/eval/metrics.js'
 import { generateAmbiguities } from '../src/eval/ambiguity.js'
+import { generateSample, STANDARD_CORPUS, augmentationRng } from '../fixtures/generate.js'
 import { campgroundRosterSpec as spec } from '../examples/campground-roster/spec.js'
 import type { ValidatedRow } from '../src/types.js'
 
@@ -140,5 +141,74 @@ describe('generateAmbiguities', () => {
   it('caps questions per row so one bad row cannot flood the queue', () => {
     const questions = generateAmbiguities(spec, [r(5, '2024-10-27', '2024-10-30', 'low')], { maxPerRow: 1 })
     expect(questions).toHaveLength(1)
+  })
+})
+
+describe('corpus design', () => {
+  /**
+   * The controlled-comparison property, asserted rather than assumed.
+   *
+   * Every degraded fixture must carry the same rows as `clean`, or a score
+   * difference cannot be attributed to the degradation. An earlier corpus gave each
+   * fixture its own seed and so measured contents and treatment together — it
+   * looked like a robustness test and was not one. Nothing about the code stops that
+   * from happening again; this does.
+   */
+  it('gives every degraded fixture the same gold set as the clean one', async () => {
+    const degraded = STANDARD_CORPUS.filter((c) => c.opts.augment?.length)
+    expect(degraded.length).toBeGreaterThan(4)
+
+    const clean = STANDARD_CORPUS.find((c) => c.id === 'clean')!
+    const truth = await generateSample(spec, clean.opts)
+
+    for (const entry of degraded) {
+      const sample = await generateSample(spec, entry.opts)
+      expect(sample.rows, `${entry.id} vs clean`).toEqual(truth.rows)
+      expect(sample.documentDate, entry.id).toBe(truth.documentDate)
+    }
+  })
+
+  it('still varies the rows where the fixture is about density, not degradation', async () => {
+    // `sparse` and `full` change fill rate on purpose, so their gold sets differ.
+    // Asserting this keeps the rule above from being satisfied by a corpus where
+    // every sample is identical and nothing is being varied at all.
+    const clean = await generateSample(spec, STANDARD_CORPUS.find((c) => c.id === 'clean')!.opts)
+    const sparse = await generateSample(spec, STANDARD_CORPUS.find((c) => c.id === 'sparse')!.opts)
+    const full = await generateSample(spec, STANDARD_CORPUS.find((c) => c.id === 'full')!.opts)
+
+    expect(sparse.rows.length).toBeLessThan(clean.rows.length)
+    expect(full.rows.length).toBeGreaterThan(clean.rows.length)
+  })
+})
+
+describe('augmentation severity', () => {
+  /**
+   * Each degradation's severity has to be its own, or a combined fixture is not the
+   * combination of its parts.
+   *
+   * The augmentations used to draw from one shared stream in application order, so
+   * `glare` — which draws twice for its centre — shifted `skew` onto a different
+   * angle. `worst-case` is glare+skew+blur+shadow and drew a near-zero rotation,
+   * scoring identically to the clean sheet while `skew` alone cost nineteen points.
+   */
+  it('draws the same numbers for an augmentation regardless of the others applied', () => {
+    for (const augmentation of ['glare', 'skew', 'blur', 'crop'] as const) {
+      const a = augmentationRng(1, augmentation)
+      const b = augmentationRng(1, augmentation)
+      expect([a(), a(), a()], augmentation).toEqual([b(), b(), b()])
+    }
+  })
+
+  it('gives different augmentations different streams', () => {
+    // Otherwise every degradation would be parameterised identically, and the
+    // corpus would vary the kind of damage without varying its severity.
+    const seen = new Set(
+      (['glare', 'shadow', 'lowlight', 'skew', 'blur', 'crop'] as const).map((a) => augmentationRng(1, a)()),
+    )
+    expect(seen.size).toBe(6)
+  })
+
+  it('gives the same augmentation different severity under different seeds', () => {
+    expect(augmentationRng(1, 'skew')()).not.toBe(augmentationRng(2, 'skew')())
   })
 })
