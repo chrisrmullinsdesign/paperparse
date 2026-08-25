@@ -10,7 +10,7 @@ Built around one idea: **a form is data, not code.** You describe the physical a
 
 | Backend | How it reads | Measured on the corpus below |
 | --- | --- | --- |
-| **Textract** | OCR words + boxes, rows anchored on the printed row number | 92.2% row recall, **99.9% field accuracy**, ~$0.015/page, **3.5s** |
+| **Textract** | OCR words + boxes, rows anchored on the printed row number | 87.1% row recall, 98.4% field accuracy, ~$0.015/page, **3.6s** |
 | **Claude (vision)** | The image and a generated prompt | **99.6% row recall**, 100% field accuracy, $0.110/page, 31.6s |
 | **Textract → Claude** | Textract first; the vision model re-reads only the doubtful rows | not re-measured since the anchoring change — see [below](#a-correction) |
 
@@ -112,7 +112,7 @@ Note `[81-89]` stopping at 89 and `[99-100]` picking up after: that falls out of
 
 ```bash
 npm install
-npm test                 # 174 tests, no API key required
+npm test                 # 179 tests, no API key required
 npm run fixtures         # render the synthetic corpus to fixtures/out/
 npm run ui               # the viewer, once you have recorded a run
 ```
@@ -206,7 +206,7 @@ The same page is published from `runs/` on every push, which is the whole deploy
 nothing in the published site that isn't also in the repository.
 
 <p align="center">
-  <img src="docs/img/viewer.jpg" width="100%" alt="The viewer showing a real Textract run on the skewed capture: the sheet on the left with green bands tilted to follow the photographed rows while the dashed FormSpec block outlines stay axis-aligned, and hatched red bands on eleven dropped rows; on the right, 51 accepted, 0 review, 11 dropped, 4 never returned, 92.5% row recall and 99.0% field accuracy.">
+  <img src="docs/img/viewer.jpg" width="100%" alt="The viewer showing a real Textract run on the skewed capture. The sheet on the left carries green bands tilted to follow the photographed rows, while hatched red bands on the dropped rows sit square to the image alongside the dashed FormSpec block outlines. On the right: 45 accepted, 0 review, 22 dropped, 14 never returned, 73.1% row recall and 92.1% field accuracy.">
 </p>
 
 One page, no framework, no build step. The sheet on the left with every row banded by
@@ -216,12 +216,15 @@ queue as a stack of answerable questions, each with the actual pixels attached a
 keypress per answer.
 
 That screenshot is a real Textract run on `skew`, and it argues the repo's central point
-without a paragraph: **the dashed block outlines are the FormSpec's declared coordinates
-and they sit square to the image, while the green bands tilt with the photographed
-paper.** The bands are drawn from the boxes the backend actually read each row's cells
-from, so they follow the sheet rather than the spec. The eleven hatched red bands are the
-dropped rows, and because nothing measured those, they are drawn at declared coordinates
-— you can see them fail to line up. That mismatch is the whole argument for anchoring.
+without a paragraph. **The green bands tilt with the photographed paper. The hatched red
+ones sit square to the image.** Both are on the same sheet.
+
+Green bands are drawn from the boxes the backend actually read each row's cells from, so
+they follow the page. Red ones are rows that produced no cells — nothing measured them,
+so all the viewer can do is fall back to the FormSpec's declared coordinates, which is
+why they line up with the dashed block outlines and not with the paper. The gap between
+the two is exactly the error that declared geometry accumulates on a photograph, and it
+is the whole argument for anchoring.
 
 Two things it does that a demo of an extractor usually can't:
 
@@ -319,7 +322,7 @@ All figures below: the 9-image synthetic corpus, 488 gold rows, Claude Opus 5 at
 | Configuration | Row recall | Row precision | Exact F1 | Field accuracy | Requests | Cost / image | Avg / image |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | anthropic / whole | 99.6% | 99.6% | 99.6% | 100.0% | 1 | $0.110 | 31.6s |
-| textract / whole | 92.2% | 99.6% | 95.5% | 99.9% | 1 | ~$0.015 † | **3.5s** |
+| textract / whole | 87.1% | 97.2% | 89.4% | 98.4% | 1 | ~$0.015 † | **3.6s** |
 | textract → anthropic / escalate | *stale* ‡ | | | | 2 | $0.064 | 22.5s |
 
 † The harness prices tokens; Textract bills per page. Its cost column reads `$0.000` because the number it knows is genuinely zero — the ~$0.015 is the published `AnalyzeDocument` TABLES rate, quoted here rather than computed.
@@ -330,13 +333,56 @@ Reproduce with `npm run bench -- --textract --modes whole`.
 
 **Sectioning lost, and it was the hypothesis this repo was built on.** Worst recall of the three read modes, 2.6× the cost, thirteen requests against one. Two things plausibly explain it, and I can only argue for the first: the crops are small, and a model reading ten rows in isolation appears to hedge — 97.8% precision against 82.4% recall is the signature of dropping rows it isn't sure about rather than misreading them. The second is that these are *clean synthetic renders*, and the summarization failure that motivated sectioning may simply not occur on them. The technique was originally developed against real phone photographs of a real clipboard — glare, angle, thumb over the corner. **That is a limitation of this corpus, not a vindication of the technique.** Testing it needs real photographs and a real gold set, which this repo does not have.
 
-**A cheap geometric backend is closer than expected.** Textract gives up ~7 points of recall and returns in 3.5 seconds instead of 32, at roughly an eighth of the cost, at 99.9% field accuracy once partial dates are resolved against the header — one wrong field in 1,047. Nearly everything it got, it got right. For a high-volume pipeline that ratio is hard to argue with. Most of the remaining recall gap is one image: `cropped-edge` scores 44.6% because rows are genuinely outside the frame, and the other eight average 98.5%.
+**A cheap geometric backend is closer than expected, on the images it can read at all.** Textract returns in 3.6 seconds instead of 32, at roughly an eighth of the cost, at 98.4% field accuracy once partial dates are resolved against the header. On the four sheets with no geometric damage it scores 98.1% recall — within two points of the vision model at an eighth of the price. The aggregate is 87.1% because the corpus now contains cases that genuinely defeat it, and what defeats it is specific. See below.
 
 **Escalation's numbers are stale and are not repeated here.** They were measured when Textract resolved rows positionally, and escalation triggers on *how many rows the primary returned incomplete* — so changing how the primary assembles rows changes what escalates. The old figures (95.1% recall at $0.064) described a different primary. Re-measuring needs an Anthropic key, which the machine that recorded these runs did not have. Reporting them as current would be exactly the kind of claim the rest of this README is written to avoid.
 
 **How escalation had to be fixed is the more interesting result.** The first version triggered on low confidence, which did *nothing at all* — identical scores, double the cost. The diagnosis: of 488 gold rows, Textract returned 30 with low confidence and got every one of them right, while losing recall on 8 rows it returned with a *field missing* and 4 it never returned. Confidence was measuring the wrong thing. Escalation now also triggers on a missing required field, which is where the 1.7 points came from. A half-read row turns out to be a better signal than a hedged one — and no amount of reasoning about it would have been as quick as measuring it.
 
 **Run-to-run variance is real and worth stating.** `anthropic / whole` scored 98.2%, 100.0% and 99.6% across three runs of the identical corpus; a single image measured 100% / 80.8% / 100% recall across three runs. These are single-pass numbers, not averages over repeats. Treat differences under a couple of points as noise — including the ones in these tables. Textract, by contrast, returns the same answer every time, which is its own kind of value.
+
+### What actually degrades a capture
+
+The corpus is one roster, photographed badly seven ways. **All seven degraded
+fixtures share a seed and a fill rate, so they carry an identical gold set** — which
+is what makes a difference in score attributable to the damage rather than to the
+contents. Per-image, against the clean sheet:
+
+| Fixture | What was done to it | Row recall | vs. clean |
+| --- | --- | --- | --- |
+| clean | nothing | 98.1% | — |
+| glare | bright elliptical wash | 98.1% | **+0.0** |
+| blur | gaussian, radius 0.8–1.7 | 98.1% | **+0.0** |
+| lowlight-shadow | −28% brightness, corner gradient | 98.1% | **+0.0** |
+| skew | rotation, ±2° | 73.1% | **−25.0** |
+| worst-case | glare + skew + blur + shadow | 76.9% | −21.2 |
+| cropped-edge | 2–6% off the left edge | 42.3% | **−55.8** |
+
+**Photometric damage does nothing. Geometric damage does everything.** Glare, blur
+and shadow cost *exactly zero* points — not "within noise", the same 51 of 52 rows.
+Rotation costs twenty-five, and losing the left edge costs fifty-six.
+
+That result is worth more than the aggregate, and it is an argument against the way
+this corpus was built. Three of nine fixtures exist to test degradations that a
+modern OCR engine simply does not care about. If the point is to measure robustness,
+the budget should go to rotation, perspective, fold shadows across a row, and partial
+occlusion — the things that move the printed geometry — rather than to making the
+page darker.
+
+**`cropped-edge` is the sharpest result here and the most specific.** The crop takes
+2–6% off the *left* edge, which is where the left column's printed row numbers live.
+The rows stay fully in frame — every name, permit and date is legible — but the
+number that identifies them is gone. Anchored resolution reads that number and has
+nothing else to fall back on, so half the sheet becomes unrecoverable while remaining
+perfectly readable. That is not a hard-to-read image; it is the one thing this
+strategy cannot survive, and it is the price of refusing to trust declared
+coordinates. A form whose row numbers can leave the frame wants a fallback that
+positional mode would supply.
+
+**`worst-case` scoring better than `skew` alone is within the corpus's noise**, and
+the two differ only in photometric treatment on top of the same rotation.
+
+---
 
 ### A correction
 
@@ -374,6 +420,30 @@ a page at the spec's own declared columns and fails on the old constant.
 The escalation row is marked stale rather than corrected, because escalation triggers on
 incomplete rows from the primary and the primary's assembly changed underneath it. That
 one needs a live re-run, not an edit.
+
+**The corpus had two design faults too, and they were worse.** Recording real runs is
+what exposed them, because nine numbers side by side are readable in a way one
+aggregate is not.
+
+*Every fixture had its own seed.* They were nine different rosters with one
+degradation each, so contents and treatment varied together and no score difference
+could be attributed to either. The README described them as "the same form" degraded.
+They were not. All seven degraded fixtures now share seed 1 and fill rate 0.5, and a
+test asserts their gold sets are identical — the property is load-bearing, so it is
+checked rather than remembered.
+
+*Augmentation severity depended on application order.* All six drew from one shared
+random stream in the order they were applied, and `glare` draws twice for its centre.
+So applying glare shifted `skew` onto a different angle. `worst-case` is
+glare+skew+blur+shadow, drew a near-zero rotation, and scored **identically to the
+clean sheet** while `skew` alone cost nineteen points. The worst case was not the
+worst case. Each augmentation now draws from its own stream keyed by name, and
+`worst-case` behaves like its parts.
+
+Both faults made the corpus look like a robustness test while measuring almost
+nothing, and both survived every earlier reading of this README. The aggregate went
+from 92.2% to 87.1% once the corpus contained cases that could actually defeat the
+parser — the lower number is the more honest one.
 
 **‡** Everything in these tables is recomputed from the recorded runs committed in
 `runs/`, pooled the way `bench.ts` pools them. You do not have to trust the numbers:
@@ -492,7 +562,7 @@ This library's whole job is decoding images from untrusted sources, so the image
 
 ## Honesty about what's verified
 
-- **174 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, cell provenance, pipeline stage events, review-answer application, the anchoring reach bound, the viewer's record builder, the local server's path-traversal guard, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
+- **179 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, cell provenance, pipeline stage events, review-answer application, the anchoring reach bound, the corpus's controlled-comparison property, augmentation independence, the viewer's record builder, the local server's path-traversal guard, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
 - **Both backends have been run against their live APIs**, as has the redaction pass. The numbers in the benchmark tables are recorded runs, not estimates.
 - **The Textract numbers were re-measured after a bug that made them meaningless.**
   See [*A correction*](#a-correction). The figures published before that described the
@@ -501,6 +571,7 @@ This library's whole job is decoding images from untrusted sources, so the image
   tables can be recomputed rather than believed.
 - **The escalation row is stale and marked as such**, not quietly carried forward.
 - **Every number here is a single pass over 9 synthetic images.** Not averaged over repeats, and the same configuration has moved ~2 points between runs. Differences of a few points are noise.
+- **Three of the nine fixtures test degradations that do not degrade.** Glare, blur and shadow cost exactly zero points. That is a finding, and it is also a criticism of the corpus: the effort should go to geometric damage, which is what actually moves the numbers.
 - **The corpus is synthetic and clean.** That is what makes it reproducible, and it is also its main limitation — see the sectioning discussion above. One exception: anchored registration was replayed against 41 real photographs (above), but those sheets carry personal data and are not in this repo, and the replay validates registration rather than accuracy.
 - **Not measured against any other tool.** See *Prior art* above.
 
