@@ -19,6 +19,7 @@ export {
   rectForKey,
   rectForKeys,
   expandByRows,
+  unionRects,
   pitchForKeys,
   sectionChunks,
   allValidKeys,
@@ -30,6 +31,7 @@ export {
 
 // Data shapes
 export type {
+  CellProvenance,
   Confidence,
   RawRow,
   ExtractionResult,
@@ -42,6 +44,7 @@ export type {
   AmbiguityCandidate,
   AmbiguityKind,
   AmbiguityStatus,
+  Resolution,
 } from './types.js'
 
 // Image
@@ -54,7 +57,7 @@ export type { Backend, ExtractRequest, ExtractResponse, StrategyConfig, Strategy
 export { resolveStrategy, addUsage, sumUsage, ZERO_USAGE } from './extract/backend.js'
 export { AnthropicBackend, normalizeResult } from './extract/anthropic.js'
 export { TextractBackend, placeWords, assembleRows, assembleAnchored, fillByOrder, toAnchorWords, readHeaderDate } from './extract/textract.js'
-export { findGutters, anchoredRows, anchoredLabelRows, asRowKey } from './extract/anchor.js'
+export { findGutters, anchoredRows, anchoredLabelRows, asRowKey, rectOfWord, defaultReach } from './extract/anchor.js'
 export type { AnchorWord, AnchoredRow, Gutter, AnchorOptions } from './extract/anchor.js'
 export type { TextractBackendOptions } from './extract/textract.js'
 export { EscalatingBackend } from './extract/escalate.js'
@@ -75,7 +78,7 @@ export { prf, microAverage, formatPct } from './eval/metrics.js'
 export type { Prf } from './eval/metrics.js'
 export { runBenchmark, formatBenchmarkTable, costOf, OPUS_5_PRICING } from './eval/benchmark.js'
 export type { GoldSample, BenchConfig, ConfigOutcome, SampleOutcome, Pricing } from './eval/benchmark.js'
-export { generateAmbiguities, ambiguitiesForRow } from './eval/ambiguity.js'
+export { generateAmbiguities, ambiguitiesForRow, applyResolutions } from './eval/ambiguity.js'
 
 // Redaction
 export { locateRedactionRegions, blurRegions, redactImage } from './redact/pii.js'
@@ -83,4 +86,4 @@ export type { RedactionRegion } from './redact/pii.js'
 
 // Pipeline
 export { runPipeline } from './pipeline.js'
-export type { PipelineOptions, PipelineResult, ReadMode } from './pipeline.js'
+export type { PipelineOptions, PipelineResult, ReadMode, PipelineStage, StageEvent } from './pipeline.js'

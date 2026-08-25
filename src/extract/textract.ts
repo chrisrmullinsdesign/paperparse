@@ -37,12 +37,12 @@ import {
   AnalyzeDocumentCommand,
   type Block,
 } from '@aws-sdk/client-textract'
-import { keyAtNormPoint, fieldAtNormPoint } from '../formspec/geometry.js'
-import { anchoredRows, anchoredLabelRows, type AnchorWord, type AnchoredRow } from './anchor.js'
+import { keyAtNormPoint, fieldAtNormPoint, unionRects } from '../formspec/geometry.js'
+import { anchoredRows, anchoredLabelRows, rectOfWord, type AnchorWord, type AnchoredRow } from './anchor.js'
 import { resolvePartialDate } from '../validate/rows.js'
 import type { Backend, ExtractRequest, ExtractResponse } from './backend.js'
-import type { Confidence, ExtractionResult, RawRow } from '../types.js'
-import type { FieldSpec, FormSpec } from '../formspec/types.js'
+import type { CellProvenance, Confidence, ExtractionResult, RawRow } from '../types.js'
+import type { FieldSpec, FormSpec, NormRect } from '../formspec/types.js'
 
 export interface TextractBackendOptions {
   region?: string
@@ -83,6 +83,8 @@ interface PlacedWord {
   field: string
   /** Left edge, for ordering words within a cell. */
   x: number
+  /** Full page box, so a multi-word cell can report where it was read from. */
+  rect: NormRect
 }
 
 /**
@@ -156,7 +158,16 @@ export function placeWords(
     // furniture, not data.
     if (!field) continue
 
-    placed.push({ text, confidence, rowKey, field, x: block.Geometry?.BoundingBox?.Left ?? 0 })
+    const box = block.Geometry?.BoundingBox
+    const { Left = 0, Top = 0, Width = 0, Height = 0 } = box ?? {}
+    placed.push({
+      text,
+      confidence,
+      rowKey,
+      field,
+      x: Left,
+      rect: { x: Left, y: Top, w: Width, h: Height },
+    })
   }
 
   return placed
@@ -183,6 +194,7 @@ export function assembleRows(
 
   for (const [rowKey, cells] of [...byRow.entries()].sort((a, b) => a[0] - b[0])) {
     const fields: Record<string, unknown> = {}
+    const provenance: Record<string, CellProvenance> = {}
     const confidences: number[] = []
 
     for (const [field, words] of cells) {
@@ -191,7 +203,13 @@ export function assembleRows(
       // worth a second look, even though the name itself is never stored.
       for (const w of words) confidences.push(w.confidence)
       if (!emitted.has(field)) continue
-      fields[field] = [...words].sort((a, b) => a.x - b.x).map((w) => w.text).join(' ')
+      const ordered = [...words].sort((a, b) => a.x - b.x)
+      fields[field] = ordered.map((w) => w.text).join(' ')
+
+      // A cell spanning several words reports the box around all of them, and the
+      // weakest word's score — the cell is only as trustworthy as its worst part.
+      const rect = unionRects(ordered.map((w) => w.rect))
+      if (rect) provenance[field] = { rect, score: Math.min(...ordered.map((w) => w.confidence)) }
     }
 
     if (Object.keys(fields).length === 0) continue
@@ -199,7 +217,7 @@ export function assembleRows(
     const mean = confidences.reduce((a, b) => a + b, 0) / (confidences.length || 1)
     const confidence: Confidence = mean >= high ? 'high' : mean >= medium ? 'medium' : 'low'
 
-    rows.push({ row_key: rowKey, fields, confidence })
+    rows.push({ row_key: rowKey, fields, confidence, provenance })
   }
 
   return rows
@@ -316,6 +334,7 @@ export function toAnchorWords(blocks: readonly Block[], minConfidence = 0): Anch
       // Right edge: the printed key column is right-aligned, so this is what bins
       // `7` and `47` into the same gutter. See `findGutters`.
       rx: Left + Width,
+      h: Height,
     })
   }
   return out
@@ -336,6 +355,33 @@ function looksLike(type: FieldSpec['type'], text: string): boolean {
 }
 
 /**
+ * Which cell each ordered field claimed.
+ *
+ * The assignment itself is the interesting part and both `fillByOrder` and the
+ * provenance pass need the identical answer, so it is computed once here rather
+ * than twice by two functions that could drift apart. PII fields take a cell like
+ * any other — they have to, or a name would shift every date after it — they are
+ * just never emitted.
+ */
+function assignCells(spec: FormSpec, row: AnchoredRow): Array<{ field: FieldSpec; cell: AnchorWord }> {
+  const ordered = spec.fields
+    .filter((f) => f.order !== undefined)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+
+  const out: Array<{ field: FieldSpec; cell: AnchorWord }> = []
+  const used = new Set<number>()
+
+  for (const field of ordered) {
+    const i = row.cells.findIndex((c, idx) => !used.has(idx) && looksLike(field.type, c.text))
+    if (i === -1) continue
+    used.add(i)
+    out.push({ field, cell: row.cells[i] })
+  }
+
+  return out
+}
+
+/**
  * Fill a row's fields from its cells by **order**, not by x-window.
  *
  * Each ordered field takes the next cell that looks like its type. Type-matching is
@@ -344,23 +390,21 @@ function looksLike(type: FieldSpec['type'], text: string): boolean {
  * in the second date field.
  */
 export function fillByOrder(spec: FormSpec, row: AnchoredRow): Record<string, unknown> {
-  const ordered = spec.fields
-    .filter((f) => f.order !== undefined)
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-  if (ordered.length === 0) return {}
-
-  const emitted = new Set(spec.fields.filter((f) => !f.pii).map((f) => f.name))
   const fields: Record<string, unknown> = {}
-  const used = new Set<number>()
-
-  for (const field of ordered) {
-    const i = row.cells.findIndex((c, idx) => !used.has(idx) && looksLike(field.type, c.text))
-    if (i === -1) continue
-    used.add(i)
-    if (emitted.has(field.name)) fields[field.name] = row.cells[i].text
+  for (const { field, cell } of assignCells(spec, row)) {
+    if (!field.pii) fields[field.name] = cell.text
   }
-
   return fields
+}
+
+/** Source box and OCR score for each emitted field of a row. */
+function provenanceOf(spec: FormSpec, row: AnchoredRow): Record<string, CellProvenance> {
+  const out: Record<string, CellProvenance> = {}
+  for (const { field, cell } of assignCells(spec, row)) {
+    if (field.pii) continue
+    out[field.name] = { rect: rectOfWord(cell), score: cell.confidence }
+  }
+  return out
 }
 
 /** Anchored rows → RawRows, dropping the blanks that exist for the review queue. */
@@ -389,6 +433,7 @@ export function assembleAnchored(
       row_key: row.rowKey,
       fields,
       confidence: mean >= high ? 'high' : mean >= medium ? 'medium' : 'low',
+      provenance: provenanceOf(spec, row),
     })
   }
   return out

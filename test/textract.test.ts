@@ -11,6 +11,7 @@ import type { Block } from '@aws-sdk/client-textract'
 import { placeWords, assembleRows, TextractBackend } from '../src/extract/textract.js'
 import { EscalatingBackend } from '../src/extract/escalate.js'
 import { keyAtNormPoint, fieldAtNormPoint, rectForKey } from '../src/formspec/geometry.js'
+import { validateRow } from '../src/validate/rows.js'
 import { generateSample } from '../fixtures/generate.js'
 import { campgroundRosterSpec as spec } from '../examples/campground-roster/spec.js'
 import type { Backend, ExtractRequest, ExtractResponse } from '../src/extract/backend.js'
@@ -368,5 +369,73 @@ describe('EscalatingBackend', () => {
     expect(result.rows).toHaveLength(1)
     expect(result.rows[0].fields.date_in).toBe('2024-10-02')
     expect(result.notes).toContain('secondary failed')
+  })
+})
+
+describe('cell provenance', () => {
+  it('reports the box each emitted cell was read from', () => {
+    const blocks = [
+      word('Kestrel', pointFor(20, 'last_name').x, pointFor(20, 'last_name').y),
+      word('64670', pointFor(20, 'permit_number').x, pointFor(20, 'permit_number').y),
+      word('2024-10-27', pointFor(20, 'date_in').x, pointFor(20, 'date_in').y),
+      word('2024-10-31', pointFor(20, 'date_out').x, pointFor(20, 'date_out').y),
+    ]
+    const [row] = assembleRows(spec, placeWords(spec, blocks))
+
+    const box = row.provenance!.date_in
+    expect(box).toBeDefined()
+    // The reported rect has to actually contain the point the word was drawn at,
+    // or a reviewer gets shown the wrong pixels with full confidence.
+    const p = pointFor(20, 'date_in')
+    expect(p.x).toBeGreaterThanOrEqual(box.rect.x)
+    expect(p.x).toBeLessThanOrEqual(box.rect.x + box.rect.w)
+    expect(p.y).toBeGreaterThanOrEqual(box.rect.y)
+    expect(p.y).toBeLessThanOrEqual(box.rect.y + box.rect.h)
+  })
+
+  it('never reports a box for a PII field', () => {
+    const blocks = [
+      word('Kestrel', pointFor(20, 'last_name').x, pointFor(20, 'last_name').y),
+      word('2024-10-27', pointFor(20, 'date_in').x, pointFor(20, 'date_in').y),
+    ]
+    const [row] = assembleRows(spec, placeWords(spec, blocks))
+    const pii = spec.fields.filter((f) => f.pii).map((f) => f.name)
+    expect(pii.length).toBeGreaterThan(0)
+    for (const name of pii) expect(row.provenance![name]).toBeUndefined()
+  })
+
+  it('spans every word of a multi-word cell and takes the weakest score', () => {
+    const p = pointFor(20, 'date_in')
+    const [row] = assembleRows(
+      spec,
+      placeWords(spec, [
+        word('2024-10-27', p.x - 0.01, p.y, 96),
+        word('?', p.x + 0.01, p.y, 55),
+      ]),
+    )
+
+    const box = row.provenance!.date_in
+    // A cell is only as trustworthy as its worst word, and the box has to cover
+    // both — pointing a reviewer at half a cell hides the half that went wrong.
+    expect(box.score).toBe(55)
+    expect(box.rect.w).toBeGreaterThan(0.04)
+  })
+
+  it('carries boxes through validation, and only for fields that survived it', () => {
+    const rows = assembleRows(
+      spec,
+      placeWords(spec, [
+        word('64670', pointFor(20, 'permit_number').x, pointFor(20, 'permit_number').y),
+        word('2024-10-27', pointFor(20, 'date_in').x, pointFor(20, 'date_in').y),
+        word('2024-10-31', pointFor(20, 'date_out').x, pointFor(20, 'date_out').y),
+      ]),
+    )
+    const verdict = validateRow(spec, rows[0])
+    expect(verdict.ok).toBe(true)
+    if (!verdict.ok) return
+    for (const name of Object.keys(verdict.row.provenance ?? {})) {
+      expect(verdict.row.fields[name]).toBeDefined()
+    }
+    expect(verdict.row.provenance!.date_in).toBeDefined()
   })
 })

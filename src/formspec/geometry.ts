@@ -55,6 +55,22 @@ export function rectForKey(spec: FormSpec, key: number): NormRect | null {
   }
 }
 
+/** Smallest rect containing all of the given rects. Null for an empty list. */
+export function unionRects(rects: readonly NormRect[]): NormRect | null {
+  if (rects.length === 0) return null
+  let left = Infinity
+  let top = Infinity
+  let right = -Infinity
+  let bottom = -Infinity
+  for (const r of rects) {
+    left = Math.min(left, r.x)
+    top = Math.min(top, r.y)
+    right = Math.max(right, r.x + r.w)
+    bottom = Math.max(bottom, r.y + r.h)
+  }
+  return { x: left, y: top, w: right - left, h: bottom - top }
+}
+
 /** Bounding rect covering every listed key. Used to crop a whole section at once. */
 export function rectForKeys(spec: FormSpec, keys: readonly number[]): NormRect | null {
   const rects = [...new Set(keys)]

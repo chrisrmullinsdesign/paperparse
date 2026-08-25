@@ -10,11 +10,28 @@ import type { NormRect } from './formspec/types.js'
 
 export type Confidence = 'high' | 'medium' | 'low'
 
+/**
+ * Where a cell's value physically came from on the page.
+ *
+ * Only a backend that reads coordinates can populate this. A vision model returns
+ * text and a self-report and genuinely does not know where on the paper it looked,
+ * so `provenance` is absent for those — which is a real difference between the
+ * backends and worth being able to see, not a gap to paper over with an estimate.
+ */
+export interface CellProvenance {
+  /** Union of the boxes of every word that formed this cell. */
+  rect: NormRect
+  /** Calibrated OCR score, 0–100. Absent when the backend reports no score. */
+  score?: number
+}
+
 /** One row exactly as the model returned it — untrusted, unvalidated, any shape. */
 export interface RawRow {
   row_key: unknown
   fields: Record<string, unknown>
   confidence: Confidence
+  /** Per-field source boxes, when the backend knows them. */
+  provenance?: Record<string, CellProvenance>
 }
 
 /** Full structured output from one extraction pass. */
@@ -37,6 +54,12 @@ export interface ValidatedRow {
   rowKey: number
   fields: Record<string, string | number>
   confidence: Confidence
+  /**
+   * Per-field source boxes, carried through from the backend when it reports them.
+   * Keyed by field name, and only for fields that survived validation — a reviewer
+   * highlighting a cell should never be pointed at a value that was dropped.
+   */
+  provenance?: Record<string, CellProvenance>
 }
 
 export type DropReason =
@@ -100,6 +123,15 @@ export interface Ambiguity {
   kind: AmbiguityKind
   /** Short machine-readable reason, shown to the reviewer. */
   reason: string
+  /**
+   * The field being questioned, for `field_read`.
+   *
+   * Named structurally as well as in `reason`, because applying an answer means
+   * writing to exactly one field. Recovering which one by matching the parser's
+   * guess against the row's values works right up until two columns happen to hold
+   * the same value, and then it corrects the wrong one silently.
+   */
+  field?: string
   rowRef: { rowKey: number; fields: Record<string, string | number> }
   /** Ordered choices; index 0 is the parser's best guess. */
   candidates: AmbiguityCandidate[]
@@ -108,4 +140,13 @@ export interface Ambiguity {
   status: AmbiguityStatus
   resolvedValue?: number | string
   resolvedAt?: string
+}
+
+/** One reviewer's answer to one question. */
+export interface Resolution {
+  ambiguityId: string
+  status: Exclude<AmbiguityStatus, 'open'>
+  /** Present for `resolved_choice`; absent for a skip. */
+  value?: number | string
+  resolvedAt: string
 }

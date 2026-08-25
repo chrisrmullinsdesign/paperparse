@@ -42,6 +42,26 @@ import type { ExtractionResult, PipelineMeta, ValidationOutput } from './types.j
  */
 export type ReadMode = 'auto' | 'sections' | 'split' | 'whole'
 
+/** The four stages of a run, in the order they happen. */
+export type PipelineStage = 'prepare' | 'read' | 'normalize' | 'validate'
+
+/**
+ * A stage starting or finishing.
+ *
+ * `onProgress` reports section counts and so says nothing at all during a
+ * whole-page read — which is the default, and the slowest thing here at ~30s
+ * against a vision model. A caller with a progress indicator to drive needs to
+ * know which stage is running, not only how many crops are done.
+ */
+export interface StageEvent {
+  stage: PipelineStage
+  status: 'start' | 'done'
+  /** Sub-progress within `read`, when the read mode works in countable pieces. */
+  progress?: { done: number; total: number }
+  /** Short human-readable note — the read mode, the row count, the correction made. */
+  detail?: string
+}
+
 export interface PipelineOptions {
   readMode?: ReadMode
   rules?: RowRule[]
@@ -51,6 +71,8 @@ export interface PipelineOptions {
   maxLongEdgePx?: number
   sectionConcurrency?: number
   onProgress?: (done: number, total: number) => void
+  /** Stage-level progress, emitted for every read mode. */
+  onStage?: (event: StageEvent) => void
   /** Injectable for deterministic tests of the year correction. */
   now?: Date
 }
@@ -95,10 +117,14 @@ export async function runPipeline(
   backend: Backend,
   opts: PipelineOptions = {},
 ): Promise<PipelineResult> {
+  const emit = (event: StageEvent) => opts.onStage?.(event)
+
+  emit({ stage: 'prepare', status: 'start' })
   const image = await prepareForVision(imageInput, {
     enhance: opts.enhance,
     maxLongEdgePx: opts.maxLongEdgePx,
   })
+  emit({ stage: 'prepare', status: 'done', detail: 'EXIF stripped, re-encoded' })
 
   const requested = opts.readMode ?? 'auto'
 
@@ -108,10 +134,15 @@ export async function runPipeline(
   let splitParse = false
   let sectionChunkCount: number | undefined
 
+  emit({ stage: 'read', status: 'start', detail: `${backend.name} / ${requested}` })
+
   if (requested === 'sections') {
     const sectioned = await extractBySections(image, spec, backend, {
       concurrency: opts.sectionConcurrency,
-      onProgress: opts.onProgress,
+      onProgress: (done, total) => {
+        opts.onProgress?.(done, total)
+        emit({ stage: 'read', status: 'start', progress: { done, total } })
+      },
     })
     raw = sectioned
     usage = sectioned.usage
@@ -134,8 +165,26 @@ export async function runPipeline(
     usage = whole.usage
   }
 
+  emit({ stage: 'read', status: 'done', detail: `${raw.rows.length} raw rows, ${usage.requests} request(s)` })
+
+  emit({ stage: 'normalize', status: 'start' })
   const normalized = normalizeYears(spec, raw, opts.now)
+  emit({
+    stage: 'normalize',
+    status: 'done',
+    detail:
+      normalized.correctedFrom !== undefined
+        ? `year ${normalized.correctedFrom} → ${normalized.correctedTo}`
+        : 'no correction needed',
+  })
+
+  emit({ stage: 'validate', status: 'start' })
   const validated = validateExtraction(spec, normalized.result, { rules: opts.rules })
+  emit({
+    stage: 'validate',
+    status: 'done',
+    detail: `${validated.rows.length} accepted, ${validated.uncertainRows.length} to review, ${validated.stats.droppedRowCount} dropped`,
+  })
 
   return {
     ...validated,

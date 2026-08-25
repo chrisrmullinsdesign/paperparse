@@ -12,6 +12,7 @@
 import { isValidRowKey } from '../formspec/geometry.js'
 import type { FieldSpec, FormSpec } from '../formspec/types.js'
 import type {
+  CellProvenance,
   Confidence,
   DropReason,
   ExtractionResult,
@@ -159,6 +160,7 @@ export function validateRow(
   }
 
   const fields: Record<string, string | number> = {}
+  const provenance: Record<string, CellProvenance> = {}
   const rawFields = raw.fields ?? {}
 
   for (const field of spec.fields) {
@@ -179,6 +181,11 @@ export function validateRow(
       }
     }
     fields[field.name] = parsed.value
+
+    // Boxes follow their value. Copying only for fields that survived means a
+    // reviewer can never be pointed at pixels behind a value nobody kept.
+    const cell = raw.provenance?.[field.name]
+    if (cell) provenance[field.name] = cell
   }
 
   const confidence: Confidence =
@@ -187,6 +194,7 @@ export function validateRow(
       : 'low'
 
   const row: ValidatedRow = { rowKey, fields, confidence }
+  if (Object.keys(provenance).length > 0) row.provenance = provenance
 
   for (const rule of rules) {
     const verdict = rule.check(row)

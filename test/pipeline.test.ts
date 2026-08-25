@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { runPipeline } from '../src/pipeline.js'
+import { runPipeline, type StageEvent } from '../src/pipeline.js'
 import { extractBySections } from '../src/extract/sections.js'
 import { generateSample } from '../fixtures/generate.js'
 import { campgroundRosterSpec as spec, campgroundRosterRules as rules } from '../examples/campground-roster/spec.js'
@@ -267,5 +267,53 @@ describe('generateSample', () => {
     const rough = await generateSample(spec, { seed: 33, fillRate: 0.5, augment: ['glare', 'blur'] })
     expect(rough.rows).toEqual(clean.rows)
     expect(rough.image.equals(clean.image)).toBe(false)
+  })
+})
+
+describe('stage events', () => {
+  it('reports all four stages in order, for a whole-page read', async () => {
+    const sample = await generateSample(spec, { seed: 21, fillRate: 0.2 })
+    const events: StageEvent[] = []
+    await runPipeline(sample.image, spec, new StubBackend(sample.rows), {
+      rules,
+      onStage: (e) => events.push(e),
+    })
+
+    // `onProgress` counts section crops and so stays silent on the default read
+    // mode, which is the slow one. These are what a progress indicator can use.
+    const done = events.filter((e) => e.status === 'done').map((e) => e.stage)
+    expect(done).toEqual(['prepare', 'read', 'normalize', 'validate'])
+    for (const stage of done) {
+      expect(events.some((e) => e.stage === stage && e.status === 'start')).toBe(true)
+    }
+  })
+
+  it('carries section progress alongside the legacy counter', async () => {
+    const sample = await generateSample(spec, { seed: 22, fillRate: 0.3 })
+    const events: StageEvent[] = []
+    const counted: Array<[number, number]> = []
+
+    await runPipeline(sample.image, spec, new StubBackend(sample.rows), {
+      readMode: 'sections',
+      rules,
+      onStage: (e) => events.push(e),
+      onProgress: (done, total) => counted.push([done, total]),
+    })
+
+    const withProgress = events.filter((e) => e.progress)
+    expect(withProgress.length).toBe(counted.length)
+    expect(withProgress.at(-1)!.progress).toEqual({ done: counted.length, total: counted.length })
+  })
+
+  it('says what the validator decided, not just that it ran', async () => {
+    const sample = await generateSample(spec, { seed: 23, fillRate: 0.2 })
+    const events: StageEvent[] = []
+    const result = await runPipeline(sample.image, spec, new StubBackend(sample.rows), {
+      rules,
+      onStage: (e) => events.push(e),
+    })
+
+    const validate = events.find((e) => e.stage === 'validate' && e.status === 'done')!
+    expect(validate.detail).toContain(`${result.rows.length} accepted`)
   })
 })
