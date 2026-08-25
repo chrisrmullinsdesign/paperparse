@@ -2,8 +2,8 @@
   "id": "clean",
   "image": "clean.jpg",
   "imageBase64": null,
-  "recordedAt": "2026-08-25T12:32:43.674Z",
-  "elapsedMs": 2351,
+  "recordedAt": "2026-08-25T13:04:28.870Z",
+  "elapsedMs": 3434,
   "spec": {
     "id": "campground-roster",
     "title": "Cedar Hollow State Forest campsite sign-up roster",
@@ -813,7 +813,7 @@
     }
   },
   "meta": {
-    "recordedAt": "2026-08-25T12:32:43.674Z",
+    "recordedAt": "2026-08-25T13:04:28.869Z",
     "strategy": "single",
     "backend": "textract",
     "sectionParse": false,

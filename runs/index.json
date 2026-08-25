@@ -8,56 +8,32 @@
     "uncertain": 0,
     "dropped": 0,
     "goldRows": 52,
-    "elapsedMs": 2351,
-    "recordedAt": "2026-08-25T12:32:43.674Z"
-  },
-  {
-    "id": "sparse",
-    "image": "sparse.jpg",
-    "backend": "textract",
-    "readMode": "auto",
-    "accepted": 16,
-    "uncertain": 0,
-    "dropped": 0,
-    "goldRows": 16,
-    "elapsedMs": 3329,
-    "recordedAt": "2026-08-25T12:32:47.030Z"
-  },
-  {
-    "id": "full",
-    "image": "full.jpg",
-    "backend": "textract",
-    "readMode": "auto",
-    "accepted": 100,
-    "uncertain": 0,
-    "dropped": 0,
-    "goldRows": 101,
-    "elapsedMs": 3692,
-    "recordedAt": "2026-08-25T12:32:50.738Z"
+    "elapsedMs": 3434,
+    "recordedAt": "2026-08-25T13:04:28.870Z"
   },
   {
     "id": "glare",
     "image": "glare.jpg",
     "backend": "textract",
     "readMode": "auto",
-    "accepted": 48,
+    "accepted": 51,
     "uncertain": 0,
     "dropped": 0,
-    "goldRows": 48,
-    "elapsedMs": 4207,
-    "recordedAt": "2026-08-25T12:32:54.953Z"
+    "goldRows": 52,
+    "elapsedMs": 5480,
+    "recordedAt": "2026-08-25T13:04:34.390Z"
   },
   {
     "id": "skew",
     "image": "skew.jpg",
     "backend": "textract",
     "readMode": "auto",
-    "accepted": 51,
+    "accepted": 45,
     "uncertain": 0,
-    "dropped": 11,
-    "goldRows": 53,
-    "elapsedMs": 4476,
-    "recordedAt": "2026-08-25T12:32:59.456Z"
+    "dropped": 22,
+    "goldRows": 52,
+    "elapsedMs": 3416,
+    "recordedAt": "2026-08-25T13:04:37.844Z"
   },
   {
     "id": "blur",
@@ -68,43 +44,67 @@
     "uncertain": 0,
     "dropped": 0,
     "goldRows": 52,
-    "elapsedMs": 2871,
-    "recordedAt": "2026-08-25T12:33:02.336Z"
+    "elapsedMs": 4223,
+    "recordedAt": "2026-08-25T13:04:42.089Z"
   },
   {
     "id": "lowlight-shadow",
     "image": "lowlight-shadow.jpg",
     "backend": "textract",
     "readMode": "auto",
-    "accepted": 50,
+    "accepted": 51,
     "uncertain": 0,
     "dropped": 0,
-    "goldRows": 50,
-    "elapsedMs": 2838,
-    "recordedAt": "2026-08-25T12:33:05.188Z"
+    "goldRows": 52,
+    "elapsedMs": 2867,
+    "recordedAt": "2026-08-25T13:04:44.980Z"
   },
   {
     "id": "cropped-edge",
     "image": "cropped-edge.jpg",
     "backend": "textract",
     "readMode": "auto",
-    "accepted": 25,
+    "accepted": 22,
     "uncertain": 0,
     "dropped": 0,
-    "goldRows": 56,
-    "elapsedMs": 5011,
-    "recordedAt": "2026-08-25T12:33:10.230Z"
+    "goldRows": 52,
+    "elapsedMs": 2355,
+    "recordedAt": "2026-08-25T13:04:47.382Z"
   },
   {
     "id": "worst-case",
     "image": "worst-case.jpg",
     "backend": "textract",
     "readMode": "auto",
-    "accepted": 60,
+    "accepted": 45,
     "uncertain": 0,
-    "dropped": 2,
-    "goldRows": 60,
-    "elapsedMs": 2958,
-    "recordedAt": "2026-08-25T12:33:13.193Z"
+    "dropped": 20,
+    "goldRows": 52,
+    "elapsedMs": 3199,
+    "recordedAt": "2026-08-25T13:04:50.630Z"
+  },
+  {
+    "id": "sparse",
+    "image": "sparse.jpg",
+    "backend": "textract",
+    "readMode": "auto",
+    "accepted": 19,
+    "uncertain": 0,
+    "dropped": 0,
+    "goldRows": 19,
+    "elapsedMs": 3798,
+    "recordedAt": "2026-08-25T13:04:54.440Z"
+  },
+  {
+    "id": "full",
+    "image": "full.jpg",
+    "backend": "textract",
+    "readMode": "auto",
+    "accepted": 90,
+    "uncertain": 0,
+    "dropped": 0,
+    "goldRows": 91,
+    "elapsedMs": 3734,
+    "recordedAt": "2026-08-25T13:04:58.199Z"
   }
 ]
