@@ -1,16 +1,20 @@
 # paperparse
 
+[![CI](https://github.com/chrisrmullinsdesign/paperparse/actions/workflows/ci.yml/badge.svg)](https://github.com/chrisrmullinsdesign/paperparse/actions/workflows/ci.yml)
+
 Extract structured data from photographs of handwritten paper forms — two interchangeable backends, a human-review queue, PII redaction, and a reproducible eval harness that tells you which backend to use.
+
+**[Open the viewer →](https://chrisrmullinsdesign.github.io/paperparse/)** — nine real recorded runs, the rows each one read, the rows it dropped and why, and a toggle that diffs every cell against the ground truth. No install, no key.
 
 Built around one idea: **a form is data, not code.** You describe the physical artifact once, in a `FormSpec`, and the prompt, the crop geometry, the OCR-to-meaning mapping, the output schema, the validator, and the redaction pass all read from it. Supporting a new form means writing a spec, not editing the pipeline. Supporting a new *backend* means implementing one method.
 
 | Backend | How it reads | Measured on the corpus below |
 | --- | --- | --- |
-| **Textract** | OCR words + boxes, rows anchored on the printed row number | 93.4% row recall, **100% field accuracy**, ~$0.015/page, **4.6s** |
+| **Textract** | OCR words + boxes, rows anchored on the printed row number | 92.2% row recall, **99.9% field accuracy**, ~$0.015/page, **3.5s** |
 | **Claude (vision)** | The image and a generated prompt | **99.6% row recall**, 100% field accuracy, $0.110/page, 31.6s |
-| **Textract → Claude** | Textract first; the vision model re-reads only the doubtful rows | 95.1% row recall, 100% field accuracy, $0.064/page, 22.5s |
+| **Textract → Claude** | Textract first; the vision model re-reads only the doubtful rows | not re-measured since the anchoring change — see [below](#a-correction) |
 
-Roughly: **Textract for throughput and cost, Claude for accuracy, escalation when volume makes the ~40% saving matter more than six points of recall.** The harness exists so that sentence is a measurement rather than an opinion.
+Roughly: **Textract for throughput and cost, Claude for accuracy, escalation when volume makes the saving matter more than the last seven points of recall.** The harness exists so that sentence is a measurement rather than an opinion — and [it has caught this README being wrong](#a-correction) more than once.
 
 ---
 
@@ -99,6 +103,8 @@ Note `[81-89]` stopping at 89 and `[99-100]` picking up after: that falls out of
 | `src/redact/` | Locate and blur PII columns to produce a shareable copy of a form photograph |
 | `examples/` | A worked spec for a 107-row campground roster |
 | `fixtures/` | Synthetic form generator — images with ground truth, no API key needed |
+| `ui/` | A viewer for one run: the sheet, what was read, what was dropped, and the review queue |
+| `runs/` | Recorded runs, and the answers a reviewer gave. What the viewer reads |
 
 ---
 
@@ -106,11 +112,12 @@ Note `[81-89]` stopping at 89 and `[99-100]` picking up after: that falls out of
 
 ```bash
 npm install
-npm test                 # 146 tests, no API key required
+npm test                 # 174 tests, no API key required
 npm run fixtures         # render the synthetic corpus to fixtures/out/
+npm run ui               # the viewer, once you have recorded a run
 ```
 
-Extract a single image. Either backend works — pick by whether you care more about cost or about the last six points of recall:
+Extract a single image. Either backend works — pick by whether you care more about cost or about the last seven points of recall:
 
 ```bash
 # Geometric: needs AWS credentials with textract:AnalyzeDocument
@@ -184,6 +191,108 @@ That's the crop for rows 81–89 — one request's entire view. Row 80 above and
 
 ---
 
+## Seeing the whole run
+
+`debug-crops.ts` shows you one request's view. This shows you the run:
+
+```bash
+npm run fixtures
+npm run record -- --backend textract    # spends real requests, once
+npm run ui                              # → localhost:5173
+```
+
+The same page is published from `runs/` on every push, which is the whole deployment:
+`ui/index.html` and the committed records copied into place. No build, no bundler, and
+nothing in the published site that isn't also in the repository.
+
+<p align="center">
+  <img src="docs/img/viewer.jpg" width="100%" alt="The viewer showing a real Textract run on the skewed capture: the sheet on the left with green bands tilted to follow the photographed rows while the dashed FormSpec block outlines stay axis-aligned, and hatched red bands on eleven dropped rows; on the right, 51 accepted, 0 review, 11 dropped, 4 never returned, 92.5% row recall and 99.0% field accuracy.">
+</p>
+
+One page, no framework, no build step. The sheet on the left with every row banded by
+what happened to it — accepted, held for review, dropped with a reason, or never
+returned at all. The rows on the right, hover-linked in both directions. The review
+queue as a stack of answerable questions, each with the actual pixels attached and a
+keypress per answer.
+
+That screenshot is a real Textract run on `skew`, and it argues the repo's central point
+without a paragraph: **the dashed block outlines are the FormSpec's declared coordinates
+and they sit square to the image, while the green bands tilt with the photographed
+paper.** The bands are drawn from the boxes the backend actually read each row's cells
+from, so they follow the sheet rather than the spec. The eleven hatched red bands are the
+dropped rows, and because nothing measured those, they are drawn at declared coordinates
+— you can see them fail to line up. That mismatch is the whole argument for anchoring.
+
+Two things it does that a demo of an extractor usually can't:
+
+**It shows you the rows that aren't there.** A row the parser never returned leaves no
+trace in its own output — it isn't in `rows`, it isn't in `uncertainRows`, and it isn't
+in `stats.drops`. It exists only by comparison with the labels. The corpus is generated,
+so the labels exist, so the fourth category can be drawn. That category is the one a
+demo normally hides.
+
+**It can be wrong out loud.** `compare to truth` diffs every cell against the generator's
+gold data and marks the ones that disagree, using the same `multisetDiff` the benchmark
+uses. Toggle it on and the run stops being a list of plausible values.
+
+The crop the review queue shows is the *cell*, not the row, whenever the backend reports
+coordinates — which is Textract's real advantage over a vision model made visible. Ask
+the vision backend the same question and you get the whole row, because a vision model
+genuinely does not know where on the paper it looked. The viewer says so rather than
+guessing a box.
+
+**There is no simulated mode, and `runs/` ships empty.** The viewer reads real recorded
+runs or it shows you how to make one. A fabricated run in this repo would undo the only
+thing the repo is arguing.
+
+The tradeoff of no build step is that `ui/index.html` is plain JavaScript and is not
+typechecked; the TypeScript either side of it — `ui/server.ts`, `ui/record.ts` — is, and
+is tested. The viewer computes no geometry of its own: row rectangles arrive precomputed
+from `rectForKey`, so there is no second implementation of the layout maths to drift.
+
+### Answers have to go somewhere
+
+A review queue that forgets on refresh is a demo of a review queue. Answers are written
+to `runs/<id>.review.json`, and folding them back into the rows is a command:
+
+```bash
+npm run review -- clean
+```
+
+It reports what the answers changed, and rescores:
+
+```
+<run> — <n> of <n> questions answered
+  <n> corrected, <n> skipped, <n> rows changed
+  review queue: <n> → <n>
+
+Scored against the generator's labels:
+  row recall      <before> → <after>
+  exact match     <before> → <after>
+  field accuracy  <before> → <after>
+```
+
+The shape, not a recorded result — the numbers depend on which rows your run left
+uncertain and what the reviewer said, so quoting a figure here would be inventing one.
+Run it and read your own.
+
+Three things in the design are deliberate:
+
+**Review is scored, not asserted.** "A human checked it" is unfalsifiable. The same
+`multisetDiff` the benchmark uses runs over the corrected rows, so the value of review
+is a number on the same scale as everything else in this README.
+
+**It can report that review made things worse**, and names the rows where the answers
+disagreed with the labels. A reviewer squinting at a blurred cell is a better source than
+the model's self-report, not an infallible one. A loop that only ever reports improvement
+is not measuring anything.
+
+**A skip is not agreement.** A reviewer who skips is saying "I can't tell either", which
+is different from confirming the parser — so the row keeps its value and stays exactly as
+uncertain as it was. Only an explicit choice corrects a row and clears it from the queue.
+
+---
+
 ## Benchmarking
 
 The harness runs a labelled corpus through several configurations and reports comparable numbers:
@@ -210,8 +319,8 @@ All figures below: the 9-image synthetic corpus, 488 gold rows, Claude Opus 5 at
 | Configuration | Row recall | Row precision | Exact F1 | Field accuracy | Requests | Cost / image | Avg / image |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | anthropic / whole | 99.6% | 99.6% | 99.6% | 100.0% | 1 | $0.110 | 31.6s |
-| textract / whole | 93.4% | 99.1% | 96.2% | 100.0% | 1 | ~$0.015 † | **4.6s** |
-| textract → anthropic / escalate | 95.1% | 98.9% | 97.0% | 100.0% | 2 | $0.064 | 22.5s |
+| textract / whole | 92.2% | 99.6% | 95.5% | 99.9% | 1 | ~$0.015 † | **3.5s** |
+| textract → anthropic / escalate | *stale* ‡ | | | | 2 | $0.064 | 22.5s |
 
 † The harness prices tokens; Textract bills per page. Its cost column reads `$0.000` because the number it knows is genuinely zero — the ~$0.015 is the published `AnalyzeDocument` TABLES rate, quoted here rather than computed.
 
@@ -221,13 +330,56 @@ Reproduce with `npm run bench -- --textract --modes whole`.
 
 **Sectioning lost, and it was the hypothesis this repo was built on.** Worst recall of the three read modes, 2.6× the cost, thirteen requests against one. Two things plausibly explain it, and I can only argue for the first: the crops are small, and a model reading ten rows in isolation appears to hedge — 97.8% precision against 82.4% recall is the signature of dropping rows it isn't sure about rather than misreading them. The second is that these are *clean synthetic renders*, and the summarization failure that motivated sectioning may simply not occur on them. The technique was originally developed against real phone photographs of a real clipboard — glare, angle, thumb over the corner. **That is a limitation of this corpus, not a vindication of the technique.** Testing it needs real photographs and a real gold set, which this repo does not have.
 
-**A cheap geometric backend is closer than expected.** Textract gives up ~6 points of recall and returns in under 5 seconds instead of 32, at roughly an eighth of the cost, with *identical* field accuracy once partial dates are resolved against the header. Everything it got, it got right. For a high-volume pipeline that ratio is hard to argue with.
+**A cheap geometric backend is closer than expected.** Textract gives up ~7 points of recall and returns in 3.5 seconds instead of 32, at roughly an eighth of the cost, at 99.9% field accuracy once partial dates are resolved against the header — one wrong field in 1,047. Nearly everything it got, it got right. For a high-volume pipeline that ratio is hard to argue with. Most of the remaining recall gap is one image: `cropped-edge` scores 44.6% because rows are genuinely outside the frame, and the other eight average 98.5%.
 
-**Escalation helps, but does not win here.** Reading cheaply and sending only the doubtful rows to the vision model recovers 1.7 points of recall over Textract alone (93.4% → 95.1%) at about half the vision model's cost. It is still 4.5 points behind just using the vision model, which costs $0.110 against $0.064. On this corpus the honest ranking is: accuracy → vision model; throughput and cost → Textract alone; the middle option earns its place only if your volume makes the ~40% saving matter more than the recall.
+**Escalation's numbers are stale and are not repeated here.** They were measured when Textract resolved rows positionally, and escalation triggers on *how many rows the primary returned incomplete* — so changing how the primary assembles rows changes what escalates. The old figures (95.1% recall at $0.064) described a different primary. Re-measuring needs an Anthropic key, which the machine that recorded these runs did not have. Reporting them as current would be exactly the kind of claim the rest of this README is written to avoid.
 
 **How escalation had to be fixed is the more interesting result.** The first version triggered on low confidence, which did *nothing at all* — identical scores, double the cost. The diagnosis: of 488 gold rows, Textract returned 30 with low confidence and got every one of them right, while losing recall on 8 rows it returned with a *field missing* and 4 it never returned. Confidence was measuring the wrong thing. Escalation now also triggers on a missing required field, which is where the 1.7 points came from. A half-read row turns out to be a better signal than a hedged one — and no amount of reasoning about it would have been as quick as measuring it.
 
 **Run-to-run variance is real and worth stating.** `anthropic / whole` scored 98.2%, 100.0% and 99.6% across three runs of the identical corpus; a single image measured 100% / 80.8% / 100% recall across three runs. These are single-pass numbers, not averages over repeats. Treat differences under a couple of points as noise — including the ones in these tables. Textract, by contrast, returns the same answer every time, which is its own kind of value.
+
+### A correction
+
+The numbers above replace earlier ones, and how they were wrong is worth stating.
+
+The published Textract figures — 93.4% recall, 100% field accuracy — were measured
+when the backend resolved rows **positionally**, against declared coordinates. A later
+commit made **anchored** the default, because anchoring is the only thing that survives
+a photograph, and introduced a bound on how far right of the row number a row's cells
+may sit: `reach`, a constant, 0.34.
+
+The blocks on the worked example are 0.47 wide. The rightmost column sits at 0.438.
+Every row lost its last cell, every row therefore failed `missing_required_field`, and
+the validator dropped all of them. **On the corpus, the default backend scored zero.**
+
+Three things about that are worth more than the fix:
+
+- **The benchmark was never re-run after the default changed.** The README kept quoting
+  a measurement of a code path that was no longer the one anyone would execute. Numbers
+  do not stay true just because they were true when recorded.
+- **The test suite passed the whole time.** Every anchoring test built its rows from
+  hand-picked offsets, and all of them happened to fall inside 0.34. Nothing exercised a
+  row laid out at the coordinates the FormSpec actually declares — so the tests agreed
+  with the code and both were wrong about the form.
+- **The failure was invisible from inside the component.** Anchoring did its job
+  perfectly: it found every gutter, fitted every line, resolved every row key. The rows
+  simply came back one cell short, and the damage surfaced two stages later as a
+  validation drop. A component can be correct and still be wrong about its inputs.
+
+`reach` is no longer a constant. It is the widest block the spec declares, because a
+row cannot extend past the block that contains it — and unlike a tuned number, that is
+right for every form rather than for the one it was tuned on. The regression test builds
+a page at the spec's own declared columns and fails on the old constant.
+
+The escalation row is marked stale rather than corrected, because escalation triggers on
+incomplete rows from the primary and the primary's assembly changed underneath it. That
+one needs a live re-run, not an edit.
+
+**‡** Everything in these tables is recomputed from the recorded runs committed in
+`runs/`, pooled the way `bench.ts` pools them. You do not have to trust the numbers:
+`runs/*.json` carries the rows, the labels, and the diffs they were computed from.
+
+---
 
 ### Reading rows without trusting the coordinates
 
@@ -329,14 +481,25 @@ This library's whole job is decoding images from untrusted sources, so the image
 - **`npm audit` reports zero vulnerabilities** as committed.
 - **Validate format before decoding.** This library does not sniff magic bytes for you — it assumes you hand it an image you already vetted. If you're accepting uploads, check the actual bytes (not the client-declared MIME type) against a narrow allowlist before calling in. The advisory's own suggested mitigation is blocking the GIF, TIFF and VIPS decoders via `sharp.block()`; an allowlist of JPEG/PNG/WebP/HEIC achieves the same thing at the boundary.
 - **EXIF is stripped on the way in.** `prepareForVision` re-encodes and drops all metadata, baking in rotation first so the orientation flag isn't lost with it. Phone photos carry GPS coordinates and device identifiers; that should go before the image is stored, logged, or shown to anyone.
+- **The viewer serves the repo, so it binds loopback only.** `npm run ui` hands out
+  files from the repository directory over plain HTTP with no authentication, which is
+  fine on `127.0.0.1` and would not be on `0.0.0.0` — Node's default. Path traversal is
+  blocked separately: a request resolves inside the repo root or it 404s. Override the
+  bind with `HOST` if you know why you want to.
 - **Redaction is model-located, so treat it as a draft.** `redactImage` is best-effort, not a guarantee. For anything with real consequences, have a human check the output — or don't publish the image.
 
 ---
 
 ## Honesty about what's verified
 
-- **146 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
+- **174 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, cell provenance, pipeline stage events, review-answer application, the anchoring reach bound, the viewer's record builder, the local server's path-traversal guard, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
 - **Both backends have been run against their live APIs**, as has the redaction pass. The numbers in the benchmark tables are recorded runs, not estimates.
+- **The Textract numbers were re-measured after a bug that made them meaningless.**
+  See [*A correction*](#a-correction). The figures published before that described the
+  positional path while the default was anchored, and the anchored default was scoring
+  zero. The recorded runs behind the current numbers are committed in `runs/`, so the
+  tables can be recomputed rather than believed.
+- **The escalation row is stale and marked as such**, not quietly carried forward.
 - **Every number here is a single pass over 9 synthetic images.** Not averaged over repeats, and the same configuration has moved ~2 points between runs. Differences of a few points are noise.
 - **The corpus is synthetic and clean.** That is what makes it reproducible, and it is also its main limitation — see the sectioning discussion above. One exception: anchored registration was replayed against 41 real photographs (above), but those sheets carry personal data and are not in this repo, and the replay validates registration rather than accuracy.
 - **Not measured against any other tool.** See *Prior art* above.
