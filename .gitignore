@@ -8,6 +8,11 @@ dist/
 !.env.example
 *.pem
 
+# One reviewer's answers and the rows they produce. The recorded runs are the
+# artifact worth committing; who answered what is working state.
+runs/*.review.json
+runs/*.corrected.json
+
 # Generated fixtures and debug crops. Regenerate with `npm run fixtures`
 # and `npx tsx scripts/debug-crops.ts` — they are deterministic from seed.
 fixtures/out/

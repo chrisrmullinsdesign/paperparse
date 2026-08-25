@@ -15,6 +15,6 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "examples/**/*.ts", "fixtures/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
+  "include": ["src/**/*.ts", "examples/**/*.ts", "fixtures/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "ui/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -1,0 +1,883 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>paperparse — what it read, and how right it was</title>
+<style>
+/*
+ * One stylesheet, no framework, no build step.
+ *
+ * The colour tokens carry meaning: a row is accepted, held for review, dropped, or
+ * never returned at all. Those four states are the whole story the page tells, so
+ * they are named once here and never spelled as literals below.
+ */
+:root {
+  --bg: #f7f6f3;
+  --panel: #fffefb;
+  --ink: #1b1a18;
+  --muted: #6d6a63;
+  --line: #e3ded4;
+  --accent: #2b4a7d;
+
+  --ok: #2f7d55;        --ok-bg: rgba(47,125,85,.13);
+  --warn: #8a5d0c;      --warn-bg: rgba(196,138,26,.20);
+  --bad: #a3392b;       --bad-bg: rgba(163,57,43,.13);
+  --miss: #5b4bad;      --miss-bg: rgba(91,75,173,.13);
+
+  /*
+   * Overlay colours, deliberately outside the theme switch below.
+   *
+   * These are drawn on a photograph of white paper, which is light regardless of
+   * whether the reader prefers a dark interface. Theming them inverted the tint
+   * against its actual backdrop and the bands disappeared.
+   */
+  --ov-ok: #1c7a4a;   --ov-warn: #b07400;  --ov-bad: #b02a1b;  --ov-miss: #5238cc;
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --radius: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16161a; --panel: #1d1e23; --ink: #e9e7e2; --muted: #9a968d; --line: #2f3038;
+    --accent: #8fb3f0;
+    --ok: #6cc48d;   --ok-bg: rgba(108,196,141,.16);
+    --warn: #e0b458; --warn-bg: rgba(224,180,88,.20);
+    --bad: #e88a7c;  --bad-bg: rgba(232,138,124,.16);
+    --miss: #a99cf5; --miss-bg: rgba(169,156,245,.16);
+  }
+}
+
+* { box-sizing: border-box; }
+/*
+ * A class with `display` beats the UA stylesheet's `[hidden] { display: none }`,
+ * so the live controls stayed on screen when served statically — visible, empty,
+ * and offering to run a backend that isn't there.
+ */
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 { margin: 0; font-weight: 600; }
+button { font: inherit; color: inherit; }
+
+/* ── top bar ─────────────────────────────────────────────────────────────── */
+.bar {
+  display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: baseline;
+  padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel);
+  position: sticky; top: 0; z-index: 20;
+}
+.brand { font-family: var(--mono); font-weight: 600; letter-spacing: -.02em; }
+.brand small { color: var(--muted); font-weight: 400; margin-left: 8px; letter-spacing: 0; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.tab {
+  border: 1px solid var(--line); background: transparent; border-radius: 99px;
+  padding: 3px 11px; cursor: pointer; font-size: 13px; color: var(--muted);
+}
+.tab:hover { border-color: var(--muted); color: var(--ink); }
+.tab[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--panel); }
+.runmeta { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.runmeta b { color: var(--ink); font-weight: 600; }
+
+/* ── layout ──────────────────────────────────────────────────────────────── */
+main {
+  display: grid; grid-template-columns: minmax(0,1fr) 480px; gap: 18px;
+  padding: 18px; align-items: start;
+}
+@media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+.panel {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.panel + .panel { margin-top: 14px; }
+.panel h2 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted);
+  padding: 10px 14px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 10px;
+}
+.panel h2 .count { margin-left: auto; font-family: var(--mono); letter-spacing: 0; }
+
+/* ── the sheet ───────────────────────────────────────────────────────────── */
+.sheetwrap { padding: 14px; position: sticky; top: 64px; }
+.sheet { position: relative; line-height: 0; }
+.sheet img { width: 100%; display: block; border-radius: 3px; }
+.band {
+  position: absolute; border-radius: 1px; pointer-events: none;
+  mix-blend-mode: multiply; transition: outline-color .1s;
+  outline: 2px solid transparent;
+}
+/*
+ * Accepted is the expected state and covers most of the sheet, so it gets the
+ * lightest treatment. The exceptions are what the reader is looking for, so they
+ * carry the ink. Every state also gets a solid left bar, because a wash over
+ * handwriting is legible as a tint but not as a category.
+ */
+.band.ok   { background: rgba(28,122,74,.10);  box-shadow: inset 4px 0 0 var(--ov-ok); }
+.band.warn { background: rgba(176,116,0,.26);  box-shadow: inset 4px 0 0 var(--ov-warn); }
+.band.bad  { background: rgba(176,42,27,.20);  box-shadow: inset 4px 0 0 var(--ov-bad); }
+.band.miss { background: rgba(82,56,204,.17);  box-shadow: inset 4px 0 0 var(--ov-miss); }
+.band.lit  { outline-color: #111; z-index: 3; }
+/* Vertical position is the spec's guess, because this row produced no cells. */
+.band.declared { background-image: repeating-linear-gradient(45deg,
+  rgba(0,0,0,.06) 0 3px, transparent 3px 6px); }
+.blockline {
+  position: absolute; border: 1px dashed var(--muted); opacity: .5;
+  pointer-events: none; border-radius: 2px;
+}
+.blockname {
+  position: absolute; font: 10px var(--mono); color: var(--muted);
+  transform: translateY(-100%); padding-bottom: 2px; white-space: nowrap;
+}
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 0 14px 14px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+
+/* ── stats ───────────────────────────────────────────────────────────────── */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); }
+.stat { padding: 11px 14px; border-right: 1px solid var(--line); }
+.stat:last-child { border-right: 0; }
+.stat b { display: block; font: 600 20px/1.1 var(--mono); }
+.stat span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.stat.ok b { color: var(--ok); } .stat.warn b { color: var(--warn); }
+.stat.bad b { color: var(--bad); } .stat.miss b { color: var(--miss); }
+
+.scoreline {
+  padding: 9px 14px; border-top: 1px solid var(--line);
+  font: 12px var(--mono); color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 16px;
+}
+.scoreline b { color: var(--ink); font-weight: 600; }
+
+/* ── stages ──────────────────────────────────────────────────────────────── */
+.stages { display: flex; flex-wrap: wrap; gap: 6px; padding: 11px 14px; }
+.stage {
+  font: 11px var(--mono); border: 1px solid var(--line); border-radius: 99px;
+  padding: 2px 9px; color: var(--muted);
+}
+.stage.done { border-color: var(--ok); color: var(--ok); }
+.stage.busy { border-color: var(--warn); color: var(--warn); }
+.stagedetail { padding: 0 14px 11px; font-size: 12px; color: var(--muted); }
+
+/* ── review ──────────────────────────────────────────────────────────────── */
+.zoom {
+  position: relative; overflow: hidden; height: 96px; margin: 14px 14px 0;
+  border: 1px solid var(--line); border-radius: 3px; background: var(--bg);
+}
+.zoomstage { position: absolute; top: 50%; left: 50%; line-height: 0; }
+.zoomstage img { width: 100%; display: block; }
+.zoommark { position: absolute; outline: 2px solid var(--ov-warn); background: rgba(176,116,0,.20); mix-blend-mode: multiply; }
+.qtext { padding: 11px 14px 4px; }
+.qtext .why { color: var(--muted); font-size: 12px; }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px 14px; }
+.choice {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: transparent; border-radius: 4px; padding: 6px 11px;
+  font-family: var(--mono); font-size: 13px;
+}
+.choice:hover, .choice:focus-visible { border-color: var(--accent); outline: none; }
+.choice kbd {
+  font: 10px var(--mono); border: 1px solid var(--line); border-radius: 3px;
+  padding: 0 4px; color: var(--muted);
+}
+.choice.primary { border-color: var(--ink); }
+.resolved { padding: 4px 14px 14px; color: var(--muted); font-size: 13px; }
+.resolved p { margin: 10px 0 0; }
+.resolved code {
+  font-family: var(--mono); font-size: 12px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 3px; padding: 0 4px;
+}
+
+/* ── rows ────────────────────────────────────────────────────────────────── */
+.rowscroll { max-height: 46vh; overflow: auto; }
+table { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 12px; }
+thead th {
+  position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 500;
+  color: var(--muted); padding: 6px 14px; border-bottom: 1px solid var(--line); font-size: 11px;
+}
+/* A date broken across two lines reads as two values. Only the note may wrap. */
+tbody td { padding: 3px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+tbody td:last-child { white-space: normal; }
+thead th { white-space: nowrap; }
+tbody tr:hover, tbody tr.lit { background: var(--bg); }
+tbody tr.ok   td:first-child { border-left: 3px solid var(--ok); }
+tbody tr.warn td:first-child { border-left: 3px solid var(--warn); }
+tbody tr.bad  td:first-child { border-left: 3px solid var(--bad); }
+tbody tr.miss td:first-child { border-left: 3px solid var(--miss); }
+tbody tr.bad td, tbody tr.miss td { color: var(--muted); }
+td.wrong { background: var(--bad-bg); color: var(--bad); }
+td .truth { color: var(--muted); }
+.reason { color: var(--muted); font-style: italic; }
+
+.toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  text-transform: none; letter-spacing: 0; font-size: 12px; }
+
+.empty { padding: 24px 16px; color: var(--muted); font-size: 13px; }
+.empty code {
+  font-family: var(--mono); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 3px; padding: 1px 5px;
+}
+.note {
+  margin: 0 14px 14px; padding: 9px 11px; border-radius: 4px;
+  background: var(--bg); border: 1px solid var(--line); font-size: 12px; color: var(--muted);
+}
+.live { display: flex; gap: 6px; align-items: center; }
+.live select { font: 12px var(--mono); padding: 3px 6px; background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 4px; }
+.live button {
+  border: 1px solid var(--ink); background: var(--ink); color: var(--panel);
+  border-radius: 4px; padding: 4px 11px; cursor: pointer; font-size: 12px;
+}
+.live button:disabled { opacity: .45; cursor: default; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <h1 class="brand">paperparse <small>what it read, and how right it was</small></h1>
+  <nav class="tabs" id="tabs" aria-label="Recorded runs"></nav>
+  <div class="live" id="live" hidden>
+    <select id="backend" aria-label="Backend"></select>
+    <button id="run" type="button">Run live</button>
+  </div>
+  <div class="runmeta" id="runmeta"></div>
+</header>
+
+<main>
+  <section class="panel" aria-labelledby="sheet-h">
+    <h2 id="sheet-h">The photograph <span class="count" id="sheet-count"></span></h2>
+    <div class="sheetwrap">
+      <div class="sheet" id="sheet" aria-hidden="true"></div>
+    </div>
+    <p class="visually-hidden">
+      The overlay is a visual restatement of the results table on this page; every row it
+      marks is listed there with the same status.
+    </p>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--ov-ok)"></i> accepted</span>
+      <span><i class="swatch" style="background:var(--ov-warn)"></i> held for review</span>
+      <span><i class="swatch" style="background:var(--ov-bad)"></i> dropped, with a reason</span>
+      <span><i class="swatch" style="background:var(--ov-miss)"></i> never returned</span>
+      <span>hatched = declared position; nothing measured this row</span>
+      <span>dashed outline = a FormSpec layout block</span>
+    </div>
+  </section>
+
+  <aside>
+    <div class="panel">
+      <div class="stats" id="stats"></div>
+      <div class="scoreline" id="score"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Pipeline</h2>
+      <div class="stages" id="stages"></div>
+      <div class="stagedetail" id="stagedetail"></div>
+    </div>
+
+    <div class="panel" id="review-panel">
+      <h2>Needs a human <span class="count" id="review-count"></span></h2>
+      <div id="review"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Rows
+        <label class="toggle"><input type="checkbox" id="truth"> compare to truth</label>
+      </h2>
+      <div class="rowscroll"><table>
+        <thead><tr id="rowhead"></tr></thead>
+        <tbody id="rowbody"></tbody>
+      </table></div>
+    </div>
+  </aside>
+</main>
+
+<script type="module">
+/*
+ * The viewer.
+ *
+ * It computes nothing about the form. Row rectangles, scores, drop reasons and
+ * review questions all arrive precomputed in the run record, because every one of
+ * them already has a tested implementation in `src/` and a second one written in
+ * JavaScript here would be a second answer to the same question.
+ */
+
+const $ = (id) => document.getElementById(id)
+
+/** Where `runs/` sits, depending on whether this page is served at the root. */
+const BASES = ['runs/', '../runs/']
+let base = BASES[0]
+
+const state = {
+  index: [],       // the recorded runs available
+  run: null,       // the record on screen
+  health: null,    // live-mode capabilities, or null when served statically
+  answers: {},     // ambiguity id -> chosen value (or null for skipped)
+  cursor: 0,       // which question the review card is showing
+  showTruth: false,
+  lit: null,       // row key currently highlighted, from either direction
+}
+
+// ── loading ────────────────────────────────────────────────────────────────
+
+async function getJSON(url) {
+  const res = await fetch(url, { cache: 'no-cache' })
+  if (!res.ok) throw new Error(`${res.status} ${url}`)
+  return res.json()
+}
+
+async function findRuns() {
+  for (const candidate of BASES) {
+    try {
+      const index = await getJSON(candidate + 'index.json')
+      base = candidate
+      return index
+    } catch { /* try the next base */ }
+  }
+  return []
+}
+
+async function boot() {
+  try { state.health = await getJSON('/api/health') } catch { state.health = null }
+  state.index = await findRuns()
+
+  if (state.health) {
+    $('live').hidden = false
+    const sel = $('backend')
+    sel.innerHTML = ''
+    for (const [name, ready] of Object.entries(state.health.backends)) {
+      const opt = document.createElement('option')
+      opt.value = name
+      opt.textContent = ready ? name : `${name} (no credentials)`
+      opt.disabled = !ready
+      sel.append(opt)
+    }
+    const firstReady = Object.entries(state.health.backends).find(([, ready]) => ready)
+    if (firstReady) sel.value = firstReady[0]
+    else { $('run').disabled = true; $('run').title = 'No backend credentials found' }
+  }
+
+  renderTabs()
+  if (state.index.length > 0) await load(state.index[0].id)
+  else renderEmpty()
+}
+
+async function load(id) {
+  const entry = state.index.find((r) => r.id === id)
+  if (!entry) return
+  await show(await getJSON(`${base}${id}.json`))
+  renderTabs()
+}
+
+async function show(run) {
+  state.run = run
+  state.answers = await loadAnswers(run.id)
+  state.cursor = 0
+  state.lit = null
+  state.saveError = null
+  renderAll()
+}
+
+// ── derived views ──────────────────────────────────────────────────────────
+
+/**
+ * Every row key worth drawing, with its status.
+ *
+ * `missing` is the one that cannot be derived from the parser's own output — a row
+ * it never returned leaves no trace in `rows`, `uncertainRows` or `stats.drops`.
+ * It only exists by comparison with the labels, so it appears only when there are
+ * labels to compare against.
+ */
+function rowStates() {
+  const run = state.run
+  const out = new Map()
+  for (const r of run.rows) out.set(r.rowKey, { status: 'ok', row: r })
+  for (const r of run.uncertainRows) out.set(r.rowKey, { status: 'warn', row: r })
+  for (const d of run.stats.drops) {
+    const key = Number(d.rowKey)
+    if (Number.isFinite(key) && !out.has(key)) {
+      out.set(key, { status: 'bad', row: null, reason: `${d.reason}${d.detail ? ` (${d.detail})` : ''}` })
+    }
+  }
+  if (run.gold) {
+    for (const g of run.gold.rows) {
+      if (!out.has(g.rowKey)) out.set(g.rowKey, { status: 'miss', row: null, reason: 'never returned' })
+    }
+  }
+  return new Map([...out.entries()].sort((a, b) => a[0] - b[0]))
+}
+
+function goldByKey() {
+  const map = new Map()
+  for (const g of state.run.gold?.rows ?? []) map.set(g.rowKey, g)
+  return map
+}
+
+/** Fields the spec asks for, in declared order, minus the ones never emitted. */
+function fieldNames() {
+  return state.run.spec.fields.filter((f) => !f.pii).map((f) => f.name)
+}
+
+// ── rendering ──────────────────────────────────────────────────────────────
+
+function renderAll() {
+  renderMeta(); renderSheet(); renderStats(); renderStages(); renderReview(); renderRows()
+}
+
+function renderTabs() {
+  const tabs = $('tabs')
+  tabs.innerHTML = ''
+  for (const entry of state.index) {
+    const b = document.createElement('button')
+    b.className = 'tab'
+    b.type = 'button'
+    b.textContent = entry.id
+    b.setAttribute('aria-pressed', String(state.run?.id === entry.id))
+    b.onclick = () => load(entry.id)
+    tabs.append(b)
+  }
+}
+
+function imageURL(run) {
+  if (run.imageBase64) return run.imageBase64
+  if (!run.image) return ''
+  return /^(https?:)?\/|^\//.test(run.image) ? run.image : base + run.image
+}
+
+function renderMeta() {
+  const r = state.run
+  const bits = [
+    `<b>${r.meta.backend}</b>`,
+    r.readMode,
+    `${(r.elapsedMs / 1000).toFixed(1)}s`,
+    `${r.usage.requests} req`,
+    r.estimatedCostUsd == null ? 'per-page billing' : `$${r.estimatedCostUsd.toFixed(3)}`,
+  ]
+  $('runmeta').innerHTML = bits.join(' · ')
+}
+
+function renderSheet() {
+  const run = state.run
+  const sheet = $('sheet')
+  sheet.innerHTML = ''
+
+  const img = document.createElement('img')
+  img.src = imageURL(run)
+  img.alt = ''
+  sheet.append(img)
+
+  for (const block of run.spec.layout.blocks) {
+    const el = document.createElement('div')
+    el.className = 'blockline'
+    Object.assign(el.style, {
+      left: pct(block.x[0]), top: pct(block.y[0]),
+      width: pct(block.x[1] - block.x[0]), height: pct(block.y[1] - block.y[0]),
+    })
+    const name = document.createElement('div')
+    name.className = 'blockname'
+    name.textContent = block.id
+    Object.assign(name.style, { left: pct(block.x[0]), top: pct(block.y[0]) })
+    sheet.append(el, name)
+  }
+
+  let measured = 0
+  for (const [key, info] of rowStates()) {
+    const rect = bandRect(run, key, info)
+    if (!rect) continue
+    if (rect.measured) measured++
+    const el = document.createElement('div')
+    el.className = `band ${info.status}${rect.measured ? '' : ' declared'}`
+    el.dataset.key = String(key)
+    Object.assign(el.style, { left: pct(rect.x), top: pct(rect.y), width: pct(rect.w), height: pct(rect.h) })
+    sheet.append(el)
+  }
+
+  const total = rowStates().size
+  $('sheet-count').textContent =
+    `${measured} of ${total} rows positioned from the page itself`
+}
+
+const pct = (n) => `${(n * 100).toFixed(3)}%`
+
+/**
+ * Where to draw a row's band.
+ *
+ * Preferred: the union of the boxes the backend actually read the row's cells from.
+ * That is where the data came from, and on a skewed or keystoned photograph it is
+ * nowhere near where the FormSpec's declared coordinates put it — which is the
+ * argument for anchoring, drawn rather than asserted.
+ *
+ * Fallback: the declared rect. Unavoidable for a row that was dropped or never
+ * returned, since a row with no cells has no measured position, and for any backend
+ * that reports no coordinates at all. Those bands are marked so the two are not
+ * silently mixed.
+ */
+function bandRect(run, key, info) {
+  const declared = run.rects[key]
+  const cells = Object.values(info.row?.provenance ?? {})
+
+  if (cells.length > 0 && declared) {
+    // Vertical extent from the boxes the backend actually read — that is what
+    // anchoring establishes, and on a skewed page it is visibly not where the
+    // declared coordinates put it.
+    //
+    // Horizontal extent stays declared. Provenance covers only the fields that are
+    // emitted, and the PII columns are deliberately never located, so a purely
+    // measured band would stop short of the name and misrepresent the row as
+    // narrower than it is. The y is measured, the x is the block's.
+    let y0 = Infinity, y1 = -Infinity
+    for (const c of cells) {
+      y0 = Math.min(y0, c.rect.y)
+      y1 = Math.max(y1, c.rect.y + c.rect.h)
+    }
+    const pad = (y1 - y0) * 0.3
+    return { x: declared.x, y: y0 - pad, w: declared.w, h: y1 - y0 + pad * 2, measured: true }
+  }
+
+  // A row that was dropped or never returned has no cells, so nothing measured it.
+  return declared ? { ...declared, measured: false } : null
+}
+
+function renderStats() {
+  const run = state.run
+  const missing = run.gold
+    ? run.gold.rows.filter((g) => ![...run.rows, ...run.uncertainRows].some((r) => r.rowKey === g.rowKey)).length
+    : null
+
+  const cells = [
+    ['ok', run.rows.length, 'accepted'],
+    ['warn', run.uncertainRows.length, 'review'],
+    ['bad', run.stats.droppedRowCount, 'dropped'],
+    missing === null ? ['', '—', 'no labels'] : ['miss', missing, 'never returned'],
+  ]
+  $('stats').innerHTML = cells
+    .map(([cls, n, label]) => `<div class="stat ${cls}"><b>${n}</b><span>${label}</span></div>`)
+    .join('')
+
+  const s = run.score
+  $('score').innerHTML = s
+    ? [
+        `row recall <b>${fmtPct(s.keyDiff.matched / s.keyDiff.goldCount)}</b>`,
+        `exact <b>${fmtPct(s.exactDiff.matched / s.exactDiff.goldCount)}</b>`,
+        `field accuracy <b>${fmtPct(s.fields.correctFields / s.fields.comparedFields)}</b>`,
+        `scored against ${s.keyDiff.goldCount} labelled rows`,
+      ].join('')
+    : '<span>No labels for this image — the rows below are unscored, not perfect.</span>'
+}
+
+function fmtPct(x) {
+  return Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : '—'
+}
+
+function renderStages() {
+  const seen = new Map()
+  for (const e of state.run.stages) {
+    const prev = seen.get(e.stage) ?? {}
+    seen.set(e.stage, { ...prev, ...e, done: prev.done || e.status === 'done' })
+  }
+  $('stages').innerHTML = ['prepare', 'read', 'normalize', 'validate']
+    .map((name) => {
+      const e = seen.get(name)
+      return `<span class="stage ${e?.done ? 'done' : e ? 'busy' : ''}">${name}</span>`
+    })
+    .join('')
+  $('stagedetail').textContent = state.run.notes || ''
+}
+
+// ── the review queue ───────────────────────────────────────────────────────
+
+/** Which field a question is about — named on the record, not inferred from prose. */
+const fieldOf = (q) => q.field ?? null
+
+/**
+ * What to show the reviewer, and how tightly to frame it.
+ *
+ * `cropRect` is already the cell when the backend reported one, so the only job
+ * here is deciding how much context to put around it. A cell gets padding; a whole
+ * row is context enough on its own.
+ */
+function questionRect(q) {
+  const field = fieldOf(q)
+  const row = [...state.run.uncertainRows, ...state.run.rows].find((r) => r.rowKey === q.rowRef.rowKey)
+  const cell = field ? row?.provenance?.[field]?.rect : null
+  if (cell) {
+    const padX = cell.w * 0.6, padY = cell.h * 0.9
+    return { rect: cell, view: { x: cell.x - padX, y: cell.y - padY, w: cell.w + padX * 2, h: cell.h + padY * 2 } }
+  }
+  const rect = q.cropRect ?? state.run.rects[q.rowRef.rowKey]
+  return rect ? { rect: null, view: rect } : null
+}
+
+function renderReview() {
+  const queue = state.run.ambiguities
+  const open = queue.filter((q) => !(q.id in state.answers))
+  $('review-count').textContent = queue.length === 0 ? '' : `${queue.length - open.length} / ${queue.length}`
+  const el = $('review')
+
+  if (queue.length === 0) {
+    const dropped = state.run.stats.droppedRowCount
+    el.innerHTML = `<div class="empty">
+      <p>No questions. Every row <b>${escapeHTML(state.run.meta.backend)}</b> returned scored above the
+      confidence threshold, so nothing routed to review.</p>
+      <p>${dropped > 0
+        ? `That is not the same as nothing going wrong: ${dropped} row${dropped === 1 ? '' : 's'}
+           ${dropped === 1 ? 'was' : 'were'} <em>dropped</em> outright and ${dropped === 1 ? 'is' : 'are'}
+           listed below with the reason. A dropped row never becomes a question, because there is no
+           reading to choose between — the row failed validation rather than reading ambiguously.`
+        : `Nothing was dropped either.`}</p>
+    </div>`
+    return
+  }
+  if (open.length === 0) {
+    const where = state.health
+      ? `Saved to <code>runs/${state.run.id}.review.json</code>. <code>applyResolutions()</code>
+         turns that file into corrected rows — a human read the pixels, which beats the
+         model's self-report, so those rows leave the review queue.`
+      : `Kept in this browser only — served statically there is nowhere to write.
+         Run <code>npm run ui</code> and the same answers become a file on disk.`
+    el.innerHTML = `<div class="resolved"><p>All ${queue.length} answered.</p><p>${where}</p>
+      ${state.saveError ? `<p class="why">Save failed: ${escapeHTML(state.saveError)}</p>` : ''}</div>`
+    return
+  }
+
+  state.cursor = Math.min(state.cursor, open.length - 1)
+  const q = open[state.cursor]
+  const geo = questionRect(q)
+  const field = fieldOf(q)
+
+  const zoom = geo
+    ? `<div class="zoom">
+         <div class="zoomstage" style="width:${(100 / Math.min(1, geo.view.w)).toFixed(2)}%;
+              transform: translate(${(-(geo.view.x + geo.view.w / 2) * 100).toFixed(3)}%,
+                                   ${(-(geo.view.y + geo.view.h / 2) * 100).toFixed(3)}%)">
+           <img src="${imageURL(state.run)}" alt="">
+           ${geo.rect ? `<div class="zoommark" style="left:${pct(geo.rect.x)};top:${pct(geo.rect.y)};
+                width:${pct(geo.rect.w)};height:${pct(geo.rect.h)}"></div>` : ''}
+         </div>
+       </div>`
+    : ''
+
+  el.innerHTML = `
+    ${zoom}
+    <div class="qtext">
+      <div><b>Row ${q.rowRef.rowKey}</b>${field ? ` · <span class="why">${field}</span>` : ''}</div>
+      <div class="why">${q.reason}</div>
+    </div>
+    <div class="choices">
+      ${q.candidates
+        .map((c, i) => `<button class="choice ${i === 0 ? 'primary' : ''}" data-value="${escapeAttr(String(c.value))}">
+            <kbd>${i + 1}</kbd> ${escapeHTML(c.label)}${i === 0 ? ' <span class="why">best guess</span>' : ''}
+          </button>`)
+        .join('')}
+      <button class="choice" data-skip="1"><kbd>s</kbd> skip</button>
+    </div>
+    ${geo && !geo.rect
+      ? `<p class="note">This backend returned no coordinates, so the crop is the whole declared
+         row rather than the cell. A backend that reports boxes can point at the digit.</p>`
+      : ''}
+  `
+
+  for (const b of el.querySelectorAll('.choice')) {
+    b.onclick = () => answer(q.id, b.dataset.skip ? null : b.dataset.value)
+  }
+}
+
+function answer(id, value) {
+  state.answers[id] = { value, resolvedAt: new Date().toISOString() }
+  renderReview()
+  renderRows()
+  persist()
+}
+
+/** The answers so far, in the library's `Resolution` shape. */
+function resolutions() {
+  return Object.entries(state.answers).map(([ambiguityId, a]) => ({
+    ambiguityId,
+    status: a.value === null ? 'resolved_skip' : 'resolved_choice',
+    ...(a.value === null ? {} : { value: a.value }),
+    resolvedAt: a.resolvedAt,
+  }))
+}
+
+const storageKey = (id) => `paperparse.review.${id}`
+
+/**
+ * Keep the answers.
+ *
+ * A review queue that forgets on refresh is a demo of a review queue. With the
+ * local server the answers become a file beside the run; served statically there is
+ * nowhere to write, so they go to localStorage and the panel says so rather than
+ * implying they went somewhere durable.
+ */
+async function persist() {
+  const payload = resolutions()
+  if (!state.health) {
+    try { localStorage.setItem(storageKey(state.run.id), JSON.stringify(payload)) } catch { /* private mode */ }
+    return
+  }
+  try {
+    await fetch('/api/resolve', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ runId: state.run.id, resolutions: payload }),
+    })
+    state.saved = payload.length
+  } catch (err) {
+    state.saveError = err.message
+  }
+  renderReview()
+}
+
+/** Answers recorded earlier for this run, from whichever store holds them. */
+async function loadAnswers(runId) {
+  let stored = null
+  if (state.health) {
+    try { stored = (await getJSON(`${base}${runId}.review.json`)).resolutions } catch { stored = null }
+  } else {
+    try { stored = JSON.parse(localStorage.getItem(storageKey(runId)) ?? 'null') } catch { stored = null }
+  }
+  const out = {}
+  for (const r of stored ?? []) {
+    out[r.ambiguityId] = { value: r.status === 'resolved_skip' ? null : r.value, resolvedAt: r.resolvedAt }
+  }
+  return out
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!state.run || e.metaKey || e.ctrlKey || e.altKey) return
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return
+  const buttons = [...$('review').querySelectorAll('.choice')]
+  if (buttons.length === 0) return
+  if (e.key === 's') { buttons.at(-1).click(); e.preventDefault(); return }
+  const n = Number(e.key)
+  if (Number.isInteger(n) && n >= 1 && n < buttons.length) { buttons[n - 1].click(); e.preventDefault() }
+})
+
+// ── the rows table ─────────────────────────────────────────────────────────
+
+function renderRows() {
+  const run = state.run
+  const fields = fieldNames()
+  const gold = goldByKey()
+
+  $('rowhead').innerHTML = ['row', ...fields, 'note']
+    .map((h) => `<th>${escapeHTML(h)}</th>`).join('')
+
+  const body = $('rowbody')
+  body.innerHTML = ''
+
+  for (const [key, info] of rowStates()) {
+    const tr = document.createElement('tr')
+    tr.className = info.status
+    tr.dataset.key = String(key)
+
+    const cells = [`<td>${key}</td>`]
+    for (const name of fields) {
+      const answered = answeredValue(key, name)
+      const value = answered ?? info.row?.fields?.[name]
+      const truth = gold.get(key)?.fields?.[name]
+      const wrong = state.showTruth && truth !== undefined && value !== undefined && String(truth) !== String(value)
+      const shown = value === undefined ? '—' : escapeHTML(String(value))
+      const suffix = wrong ? ` <span class="truth">→ ${escapeHTML(String(truth))}</span>` : ''
+      cells.push(`<td class="${wrong ? 'wrong' : ''}">${shown}${suffix}</td>`)
+    }
+    const note = info.reason ?? (info.status === 'warn' ? 'held for review' : '')
+    cells.push(`<td class="reason">${escapeHTML(note)}</td>`)
+
+    tr.innerHTML = cells.join('')
+    tr.onmouseenter = () => light(key)
+    tr.onmouseleave = () => light(null)
+    body.append(tr)
+  }
+}
+
+/** A reviewer's answer overrides the parser's value everywhere it is shown. */
+function answeredValue(rowKey, field) {
+  for (const q of state.run.ambiguities) {
+    if (q.rowRef.rowKey !== rowKey) continue
+    if (fieldOf(q) !== field) continue
+    const a = state.answers[q.id]
+    if (a && a.value !== null && a.value !== undefined) return a.value
+  }
+  return undefined
+}
+
+/** Highlight one row on both the photograph and the table, from either direction. */
+function light(key) {
+  if (state.lit === key) return
+  state.lit = key
+  for (const el of document.querySelectorAll('.band.lit, tbody tr.lit')) el.classList.remove('lit')
+  if (key == null) return
+  document.querySelector(`.band[data-key="${key}"]`)?.classList.add('lit')
+  const tr = document.querySelector(`tbody tr[data-key="${key}"]`)
+  if (tr) { tr.classList.add('lit'); tr.scrollIntoView({ block: 'nearest' }) }
+}
+
+$('sheet').addEventListener('mousemove', (e) => {
+  const box = e.currentTarget.getBoundingClientRect()
+  const x = (e.clientX - box.left) / box.width
+  const y = (e.clientY - box.top) / box.height
+  // Bands are pointer-transparent so the photo stays legible, so hit-test the
+  // precomputed rects directly rather than relying on the event target.
+  const hit = Object.entries(state.run?.rects ?? {})
+    .find(([, r]) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h)
+  light(hit ? Number(hit[0]) : null)
+})
+$('sheet').addEventListener('mouseleave', () => light(null))
+
+$('truth').addEventListener('change', (e) => {
+  state.showTruth = e.target.checked
+  renderRows()
+})
+
+// ── live mode ──────────────────────────────────────────────────────────────
+
+$('run').addEventListener('click', async () => {
+  const button = $('run')
+  button.disabled = true
+  const was = button.textContent
+  button.textContent = 'Reading…'
+  try {
+    const res = await fetch('/api/extract', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        fixtureId: state.run?.id ?? state.health.fixtures[0],
+        backend: $('backend').value,
+      }),
+    })
+    const body = await res.json()
+    if (!res.ok) throw new Error(body.error ?? res.statusText)
+    await show(body)
+  } catch (err) {
+    $('stagedetail').textContent = `Live run failed: ${err.message}`
+  } finally {
+    button.disabled = false
+    button.textContent = was
+  }
+})
+
+function renderEmpty() {
+  document.querySelector('main').innerHTML = `
+    <section class="panel"><div class="empty">
+      <p><b>No recorded runs yet.</b></p>
+      <p>The viewer reads real runs from <code>runs/</code>. There is no simulated mode —
+      a fabricated run in this repo would undercut the thing it is demonstrating.</p>
+      <p>Generate the corpus and record one:</p>
+      <p><code>npm run fixtures</code><br><code>npm run record -- --backend textract</code></p>
+    </div></section>`
+}
+
+const escapeHTML = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c])
+const escapeAttr = (s) => escapeHTML(s).replace(/"/g, '&quot;')
+
+boot()
+</script>
+</body>
+</html>

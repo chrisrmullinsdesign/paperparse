@@ -1,0 +1,110 @@
+[
+  {
+    "id": "clean",
+    "image": "clean.jpg",
+    "backend": "textract",
+    "readMode": "auto",
+    "accepted": 51,
+    "uncertain": 0,
+    "dropped": 0,
+    "goldRows": 52,
+    "elapsedMs": 2351,
+    "recordedAt": "2026-08-25T12:32:43.674Z"
+  },
+  {
+    "id": "sparse",
+    "image": "sparse.jpg",
+    "backend": "textract",
+    "readMode": "auto",
+    "accepted": 16,
+    "uncertain": 0,
+    "dropped": 0,
+    "goldRows": 16,
+    "elapsedMs": 3329,
+    "recordedAt": "2026-08-25T12:32:47.030Z"
+  },
+  {
+    "id": "full",
+    "image": "full.jpg",
+    "backend": "textract",
+    "readMode": "auto",
+    "accepted": 100,
+    "uncertain": 0,
+    "dropped": 0,
+    "goldRows": 101,
+    "elapsedMs": 3692,
+    "recordedAt": "2026-08-25T12:32:50.738Z"
+  },
+  {
+    "id": "glare",
+    "image": "glare.jpg",
+    "backend": "textract",
+    "readMode": "auto",
+    "accepted": 48,
+    "uncertain": 0,
+    "dropped": 0,
+    "goldRows": 48,
+    "elapsedMs": 4207,
+    "recordedAt": "2026-08-25T12:32:54.953Z"
+  },
+  {
+    "id": "skew",
+    "image": "skew.jpg",
+    "backend": "textract",
+    "readMode": "auto",
+    "accepted": 51,
+    "uncertain": 0,
+    "dropped": 11,
+    "goldRows": 53,
+    "elapsedMs": 4476,
+    "recordedAt": "2026-08-25T12:32:59.456Z"
+  },
+  {
+    "id": "blur",
+    "image": "blur.jpg",
+    "backend": "textract",
+    "readMode": "auto",
+    "accepted": 51,
+    "uncertain": 0,
+    "dropped": 0,
+    "goldRows": 52,
+    "elapsedMs": 2871,
+    "recordedAt": "2026-08-25T12:33:02.336Z"
+  },
+  {
+    "id": "lowlight-shadow",
+    "image": "lowlight-shadow.jpg",
+    "backend": "textract",
+    "readMode": "auto",
+    "accepted": 50,
+    "uncertain": 0,
+    "dropped": 0,
+    "goldRows": 50,
+    "elapsedMs": 2838,
+    "recordedAt": "2026-08-25T12:33:05.188Z"
+  },
+  {
+    "id": "cropped-edge",
+    "image": "cropped-edge.jpg",
+    "backend": "textract",
+    "readMode": "auto",
+    "accepted": 25,
+    "uncertain": 0,
+    "dropped": 0,
+    "goldRows": 56,
+    "elapsedMs": 5011,
+    "recordedAt": "2026-08-25T12:33:10.230Z"
+  },
+  {
+    "id": "worst-case",
+    "image": "worst-case.jpg",
+    "backend": "textract",
+    "readMode": "auto",
+    "accepted": 60,
+    "uncertain": 0,
+    "dropped": 2,
+    "goldRows": 60,
+    "elapsedMs": 2958,
+    "recordedAt": "2026-08-25T12:33:13.193Z"
+  }
+]

@@ -20,7 +20,10 @@
     "test:watch": "vitest",
     "fixtures": "tsx scripts/generate-fixtures.ts",
     "bench": "tsx scripts/bench.ts",
-    "extract": "tsx scripts/extract-one.ts"
+    "extract": "tsx scripts/extract-one.ts",
+    "record": "tsx scripts/record-run.ts",
+    "ui": "tsx ui/server.ts",
+    "review": "tsx scripts/apply-review.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
