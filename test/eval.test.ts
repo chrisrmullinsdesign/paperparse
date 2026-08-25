@@ -154,31 +154,38 @@ describe('corpus design', () => {
    * looked like a robustness test and was not one. Nothing about the code stops that
    * from happening again; this does.
    */
+  // Rendering the corpus at full size takes long enough on a cold CI runner to trip
+  // vitest's default timeout. The rows come from the seed, the fill rate and the
+  // spec — never from the canvas — so these render small. The property under test is
+  // untouched by the size, and the fixtures themselves are still generated at 1200×1600.
+  const small = { width: 300, height: 400 }
+
   it('gives every degraded fixture the same gold set as the clean one', async () => {
     const degraded = STANDARD_CORPUS.filter((c) => c.opts.augment?.length)
     expect(degraded.length).toBeGreaterThan(4)
 
     const clean = STANDARD_CORPUS.find((c) => c.id === 'clean')!
-    const truth = await generateSample(spec, clean.opts)
+    const truth = await generateSample(spec, { ...clean.opts, ...small })
 
     for (const entry of degraded) {
-      const sample = await generateSample(spec, entry.opts)
+      const sample = await generateSample(spec, { ...entry.opts, ...small })
       expect(sample.rows, `${entry.id} vs clean`).toEqual(truth.rows)
       expect(sample.documentDate, entry.id).toBe(truth.documentDate)
     }
-  })
+  }, 30_000)
 
   it('still varies the rows where the fixture is about density, not degradation', async () => {
     // `sparse` and `full` change fill rate on purpose, so their gold sets differ.
     // Asserting this keeps the rule above from being satisfied by a corpus where
     // every sample is identical and nothing is being varied at all.
-    const clean = await generateSample(spec, STANDARD_CORPUS.find((c) => c.id === 'clean')!.opts)
-    const sparse = await generateSample(spec, STANDARD_CORPUS.find((c) => c.id === 'sparse')!.opts)
-    const full = await generateSample(spec, STANDARD_CORPUS.find((c) => c.id === 'full')!.opts)
+    const at = (id: string) => ({ ...STANDARD_CORPUS.find((c) => c.id === id)!.opts, ...small })
+    const clean = await generateSample(spec, at('clean'))
+    const sparse = await generateSample(spec, at('sparse'))
+    const full = await generateSample(spec, at('full'))
 
     expect(sparse.rows.length).toBeLessThan(clean.rows.length)
     expect(full.rows.length).toBeGreaterThan(clean.rows.length)
-  })
+  }, 30_000)
 })
 
 describe('augmentation severity', () => {
