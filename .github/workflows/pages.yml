@@ -1,0 +1,50 @@
+name: Publish the viewer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The viewer is a static page reading committed run records, so publishing is a
+# copy — no build, no bundler, no server. `runs/` has to be committed for this to
+# produce anything; it is the data, not an artifact of the build.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail loudly if there is nothing to publish
+        run: |
+          if [ ! -f runs/index.json ]; then
+            echo "No runs/index.json. The viewer has no data to show."
+            echo "Record one with: npm run record -- --backend textract"
+            exit 1
+          fi
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp ui/index.html _site/index.html
+          cp -r runs _site/runs
+          # index.html resolves `runs/` relative to itself, so the page sits at the
+          # site root rather than under /ui/.
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      # The suite needs no credentials and makes no network calls, which is the
+      # point: a contributor can verify every claim in the README except the
+      # recorded benchmark numbers without an AWS account or an API key.
+      - name: Assert the fixture generator is deterministic
+        run: |
+          npm run fixtures
+          sha256sum fixtures/out/*.gold.json > /tmp/first.sha
+          npm run fixtures
+          sha256sum fixtures/out/*.gold.json > /tmp/second.sha
+          diff /tmp/first.sha /tmp/second.sha
