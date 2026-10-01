@@ -4,17 +4,17 @@
 
 Extract structured data from photographs of handwritten paper forms — two interchangeable backends, a human-review queue, PII redaction, and a reproducible eval harness that tells you which backend to use.
 
-**[Open the viewer →](https://chrisrmullinsdesign.github.io/paperparse/)** — nine real recorded runs, the rows each one read, the rows it dropped and why, and a toggle that diffs every cell against the ground truth. No install, no key.
+**[Open the viewer →](https://chrisrmullinsdesign.github.io/paperparse/)** — nine real recorded Textract runs, the rows each one read, the rows it dropped and why, and a toggle that diffs every cell against the ground truth. No install, no key.
 
 Built around one idea: **a form is data, not code.** You describe the physical artifact once, in a `FormSpec`, and the prompt, the crop geometry, the OCR-to-meaning mapping, the output schema, the validator, and the redaction pass all read from it. Supporting a new form means writing a spec, not editing the pipeline. Supporting a new *backend* means implementing one method.
 
-| Backend | How it reads | Measured on the corpus below |
+| Backend | How it reads | Measured |
 | --- | --- | --- |
-| **Textract** | OCR words + boxes, rows anchored on the printed row number | 87.1% row recall, 98.4% field accuracy, ~$0.015/page, **3.6s** |
-| **Claude (vision)** | The image and a generated prompt | **99.6% row recall**, 100% field accuracy, $0.110/page, 31.6s |
+| **Textract** | OCR words + boxes, rows anchored on the printed row number | 87.1% row recall, 98.4% field accuracy, ~$0.015/page, **3.6s** — the committed corpus, 474 gold rows |
+| **Claude (vision)** | The image and a generated prompt | **99.6% row recall**, 100% field accuracy, $0.110/page, 31.6s — an *earlier* corpus, 488 gold rows, [not re-measured](#two-corpora) |
 | **Textract → Claude** | Textract first; the vision model re-reads only the doubtful rows | not re-measured since the anchoring change — see [below](#a-correction) |
 
-Roughly: **Textract for throughput and cost, Claude for accuracy, escalation when volume makes the saving matter more than the last seven points of recall.** The harness exists so that sentence is a measurement rather than an opinion — and [it has caught this README being wrong](#a-correction) more than once.
+Roughly: **Textract for throughput and cost, Claude for accuracy, escalation when volume makes the saving matter more than the recall it costs.** How much recall that is, this README cannot currently say: the two backends above were measured on [different corpora](#two-corpora), so the gap between their rows is not a measurement. The harness exists so that sentence can be one — and [it has caught this README being wrong](#a-correction) more than once.
 
 ---
 
@@ -112,12 +112,12 @@ Note `[81-89]` stopping at 89 and `[99-100]` picking up after: that falls out of
 
 ```bash
 npm install
-npm test                 # 179 tests, no API key required
+npm test                 # 198 tests, no API key required
 npm run fixtures         # render the synthetic corpus to fixtures/out/
 npm run ui               # the viewer, once you have recorded a run
 ```
 
-Extract a single image. Either backend works — pick by whether you care more about cost or about the last seven points of recall:
+Extract a single image. Either backend works — pick by whether you care more about cost or about recall:
 
 ```bash
 # Geometric: needs AWS credentials with textract:AnalyzeDocument
@@ -131,21 +131,25 @@ npm run extract -- fixtures/out/clean.jpg
 ```
 Backend:   textract  (1 request)
 Read mode: whole
-Rows: 51 returned, 48 accepted, 3 dropped
+Rows: 67 returned, 45 accepted, 22 dropped
 
 Dropped:
-  row 92: missing_required_field (date_in)
-  row 94: missing_required_field (date_in)
-  row 96: missing_required_field (date_in)
+  row 5: failed_row_rule (departure-after-arrival: date_out 2024-10-26 is not after date_in 2024-11-01)
+  row 6: failed_row_rule (departure-after-arrival: date_out 2024-10-25 is not after date_in 2024-10-30)
+  row 8: missing_required_field (date_out)
+  row 13: missing_required_field (date_out)
+  ...
 
-Confident (48):
-    2  date_in=2024-10-25  date_out=2024-10-26
-    3  date_in=2024-11-01  date_out=2024-11-05
-    4  date_in=2024-10-30  date_out=2024-11-05
+Confident (45):
+    1  date_in=2024-10-28  date_out=2024-11-03
+    2  date_in=2024-10-28  date_out=2024-11-03
+    4  date_in=2024-11-01  date_out=2024-11-04
   ...
 ```
 
-A real run against `fixtures/out/glare.jpg`. Note the three dropped rows: all in the highlighted band, all missing the same field. Every discarded row is accounted for with a reason, which is what makes a pattern like that visible instead of just showing up as a lower number — and rows shaped like these are exactly what `EscalatingBackend` sends to the vision model for a second look.
+The committed run on the rotated sheet, `runs/skew.json`, printed the way `npm run extract` prints a result. Every discarded row is accounted for with a reason — 17 missing a required field, 5 failing a cross-field rule — which is what makes a pattern visible instead of just showing up as a lower number, and rows missing a field are exactly what `EscalatingBackend` sends to the vision model for a second look.
+
+Look at the accepted rows too. Rows 1 and 2 carry the same dates, and row 1 is blank on the sheet: the rotation made the parser read row 2's cells twice. Nothing in this output says so. See [what the recall column hides](#what-actually-degrades-a-capture).
 
 In code:
 
@@ -206,7 +210,7 @@ The same page is published from `runs/` on every push, which is the whole deploy
 nothing in the published site that isn't also in the repository.
 
 <p align="center">
-  <img src="docs/img/viewer.jpg" width="100%" alt="The viewer showing a real Textract run on the skewed capture. The sheet on the left carries green bands tilted to follow the photographed rows, while hatched red bands on the dropped rows sit square to the image alongside the dashed FormSpec block outlines. On the right: 45 accepted, 0 review, 22 dropped, 14 never returned, 73.1% row recall and 92.1% field accuracy.">
+  <img src="docs/img/viewer.jpg" width="100%" alt="The viewer showing a real Textract run on the skewed capture. The sheet on the left carries green bands tilted to follow the photographed rows, while hatched red bands on the dropped rows sit square to the image alongside the dashed FormSpec block outlines. On the right: 45 accepted, 0 review, 22 dropped, 1 never returned, 73.1% row recall and 92.1% field accuracy.">
 </p>
 
 One page, no framework, no build step. The sheet on the left with every row banded by
@@ -244,9 +248,10 @@ the vision backend the same question and you get the whole row, because a vision
 genuinely does not know where on the paper it looked. The viewer says so rather than
 guessing a box.
 
-**There is no simulated mode, and `runs/` ships empty.** The viewer reads real recorded
-runs or it shows you how to make one. A fabricated run in this repo would undo the only
-thing the repo is arguing.
+**There is no simulated mode.** `runs/` holds nine recorded Textract runs and nothing
+else, and with an empty `runs/` the viewer shows you how to record one rather than
+inventing data. A fabricated run in this repo would undo the only thing the repo is
+arguing.
 
 The tradeoff of no build step is that `ui/index.html` is plain JavaScript and is not
 typechecked; the TypeScript either side of it — `ui/server.ts`, `ui/record.ts` — is, and
@@ -307,9 +312,15 @@ npm run bench                         # whole vs. split vs. sections
 npm run bench -- --textract --modes whole   # add the geometric backend
 ```
 
-All figures below: the 9-image synthetic corpus, 488 gold rows, Claude Opus 5 at `effort: high`, single pass.
+<a name="two-corpora"></a>
+**The figures below come from two corpora, and only one of them is in this repo.**
 
-**Read modes, vision backend**
+- **Textract rows**: the current nine-image corpus, 474 gold rows, single pass. The runs are committed in `runs/`, and a test recomputes every Textract figure in this README from them.
+- **Claude rows** (both tables): an earlier nine-image corpus, 488 gold rows, Claude Opus 5 at `effort: high`, single pass. That corpus gave every fixture its own seed and was [replaced](#a-correction). Those runs were never committed, so these rows cannot be recomputed from this repo, and they have not been re-measured on the current corpus — that needs an Anthropic key the recording machine did not have.
+
+So a Claude row and a Textract row are not a like-for-like comparison. Each is a real measurement of its own corpus.
+
+**Read modes, vision backend** — earlier corpus, 488 gold rows
 
 | Configuration | Row recall | Row precision | Exact F1 | Field accuracy | Requests | Cost / image | Avg / image |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -321,19 +332,19 @@ All figures below: the 9-image synthetic corpus, 488 gold rows, Claude Opus 5 at
 
 | Configuration | Row recall | Row precision | Exact F1 | Field accuracy | Requests | Cost / image | Avg / image |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| anthropic / whole | 99.6% | 99.6% | 99.6% | 100.0% | 1 | $0.110 | 31.6s |
-| textract / whole | 87.1% | 97.2% | 89.4% | 98.4% | 1 | ~$0.015 † | **3.6s** |
-| textract → anthropic / escalate | *stale* ‡ | | | | 2 | $0.064 | 22.5s |
+| anthropic / whole (earlier corpus, 488 rows) | 99.6% | 99.6% | 99.6% | 100.0% | 1 | $0.110 | 31.6s |
+| textract / whole (current corpus, 474 rows) | 87.1% | 97.2% | 89.4% | 98.4% | 1 | ~$0.015 † | **3.6s** |
+| textract → anthropic / escalate (earlier corpus) | *stale* | | | | 2 | $0.064 | 22.5s |
 
 † The harness prices tokens; Textract bills per page. Its cost column reads `$0.000` because the number it knows is genuinely zero — the ~$0.015 is the published `AnalyzeDocument` TABLES rate, quoted here rather than computed.
 
-Reproduce with `npm run bench -- --textract --modes whole`.
+Recompute the Textract row from `runs/` with `npm test` (`test/readme.test.ts`), or re-measure it with `npm run bench -- --textract --modes whole`.
 
 ### What the numbers say
 
 **Sectioning lost, and it was the hypothesis this repo was built on.** Worst recall of the three read modes, 2.6× the cost, thirteen requests against one. Two things plausibly explain it, and I can only argue for the first: the crops are small, and a model reading ten rows in isolation appears to hedge — 97.8% precision against 82.4% recall is the signature of dropping rows it isn't sure about rather than misreading them. The second is that these are *clean synthetic renders*, and the summarization failure that motivated sectioning may simply not occur on them. The technique was originally developed against real phone photographs of a real clipboard — glare, angle, thumb over the corner. **That is a limitation of this corpus, not a vindication of the technique.** Testing it needs real photographs and a real gold set, which this repo does not have.
 
-**A cheap geometric backend is closer than expected, on the images it can read at all.** Textract returns in 3.6 seconds instead of 32, at roughly an eighth of the cost, at 98.4% field accuracy once partial dates are resolved against the header. On the four sheets with no geometric damage it scores 98.1% recall — within two points of the vision model at an eighth of the price. The aggregate is 87.1% because the corpus now contains cases that genuinely defeat it, and what defeats it is specific. See below.
+**A cheap geometric backend is closer than expected, on the images it can read at all.** Textract returns in 3.6 seconds instead of 32, at roughly an eighth of the cost, at 98.4% field accuracy once partial dates are resolved against the header. On the four same-roster sheets with no geometric damage it scores 98.1% recall each, and the row it misses is the same one every time (below). The vision model's 99.6% was measured on a different corpus, so "within two points" is suggestive and not a comparison. The aggregate is 87.1% because the corpus now contains cases that genuinely defeat it, and what defeats it is specific. See below.
 
 **Escalation's numbers are stale and are not repeated here.** They were measured when Textract resolved rows positionally, and escalation triggers on *how many rows the primary returned incomplete* — so changing how the primary assembles rows changes what escalates. The old figures (95.1% recall at $0.064) described a different primary. Re-measuring needs an Anthropic key, which the machine that recorded these runs did not have. Reporting them as current would be exactly the kind of claim the rest of this README is written to avoid.
 
@@ -343,24 +354,42 @@ Reproduce with `npm run bench -- --textract --modes whole`.
 
 ### What actually degrades a capture
 
-The corpus is one roster, photographed badly seven ways. **All seven degraded
-fixtures share a seed and a fill rate, so they carry an identical gold set** — which
-is what makes a difference in score attributable to the damage rather than to the
+The corpus is one roster, photographed badly six ways. **The clean sheet and all six
+degraded fixtures share a seed and a fill rate, so they carry an identical gold set** —
+which is what makes a difference in score attributable to the damage rather than to the
 contents. Per-image, against the clean sheet:
 
-| Fixture | What was done to it | Row recall | vs. clean |
-| --- | --- | --- | --- |
-| clean | nothing | 98.1% | — |
-| glare | bright elliptical wash | 98.1% | **+0.0** |
-| blur | gaussian, radius 0.8–1.7 | 98.1% | **+0.0** |
-| lowlight-shadow | −28% brightness, corner gradient | 98.1% | **+0.0** |
-| skew | rotation, ±2° | 73.1% | **−25.0** |
-| worst-case | glare + skew + blur + shadow | 76.9% | −21.2 |
-| cropped-edge | 2–6% off the left edge | 42.3% | **−55.8** |
+| Fixture | What was done to it | Row recall | vs. clean | Row precision | Accepted rows exactly right |
+| --- | --- | --- | --- | --- | --- |
+| clean | nothing | 98.1% | — | 100.0% | 51 of 51 |
+| glare | bright elliptical wash | 98.1% | **+0.0** | 100.0% | 51 of 51 |
+| blur | gaussian, radius 0.8–1.7 | 98.1% | **+0.0** | 100.0% | 51 of 51 |
+| lowlight-shadow | −28% brightness, corner gradient | 98.1% | **+0.0** | 100.0% | 51 of 51 |
+| skew | rotation, ±2° | 73.1% | **−25.0** | 84.4% | 33 of 45 |
+| worst-case | glare + skew + blur + shadow | 76.9% | −21.2 | 88.9% | 34 of 45 |
+| cropped-edge | 2–6% off the left edge | 42.3% | **−55.8** | 100.0% | 22 of 22 |
 
 **Photometric damage does nothing. Geometric damage does everything.** Glare, blur
 and shadow cost *exactly zero* points — not "within noise", the same 51 of 52 rows.
 Rotation costs twenty-five, and losing the left edge costs fifty-six.
+
+**The recall column hides the worse half of the rotation result.** On `skew`, 12 of the
+45 rows the parser accepted are wrong, every one of them returned at high confidence,
+and the review queue is empty. Seven sit under a row that is blank on the sheet:
+accepted row 1 holds row 2's dates, row 4 holds row 5's, row 11 holds row 12's. That is
+the failure this README attributes to positional resolution — plausible rows under the
+wrong key — happening in anchored mode at two degrees of rotation. The validator dropped
+five more that paired one row's arrival with its neighbour's departure, and caught them
+only because the mixture happened to break `departure-after-arrival`. A lost row is
+visible. A row filed under its neighbour's
+number is not, and nothing in the pipeline's own output distinguishes it from a correct
+one; it shows up only against the labels. `cropped-edge` is the opposite case: it loses
+the most rows and gets every row it keeps right.
+
+**The one missing row on the undamaged sheets is always row 100.** It is printed, filled
+in and legible in `runs/clean.jpg`, and no run returns it — on `full` as well. So 98.1%
+is one deterministic miss, not a ceiling. The cause is undiagnosed: the recorded runs do
+not keep Textract's raw response, so the parser cannot be replayed against them.
 
 That result is worth more than the aggregate, and it is an argument against the way
 this corpus was built. Three of nine fixtures exist to test degradations that a
@@ -379,8 +408,10 @@ strategy cannot survive, and it is the price of refusing to trust declared
 coordinates. A form whose row numbers can leave the frame wants a fallback that
 positional mode would supply.
 
-**`worst-case` scoring better than `skew` alone is within the corpus's noise**, and
-the two differ only in photometric treatment on top of the same rotation.
+**`worst-case` scores two rows better than `skew` alone, and that is not noise.**
+Textract returns the same answer for the same image, and the two fixtures share a
+rotation and differ only in photometric treatment. Why blur, glare and shadow on top of
+the rotation recover two rows is unexplained.
 
 ---
 
@@ -428,7 +459,7 @@ aggregate is not.
 *Every fixture had its own seed.* They were nine different rosters with one
 degradation each, so contents and treatment varied together and no score difference
 could be attributed to either. The README described them as "the same form" degraded.
-They were not. All seven degraded fixtures now share seed 1 and fill rate 0.5, and a
+They were not. The clean sheet and all six degraded fixtures now share seed 1 and fill rate 0.5, and a
 test asserts their gold sets are identical — the property is load-bearing, so it is
 checked rather than remembered.
 
@@ -445,9 +476,18 @@ nothing, and both survived every earlier reading of this README. The aggregate w
 from 92.2% to 87.1% once the corpus contained cases that could actually defeat the
 parser — the lower number is the more honest one.
 
-**‡** Everything in these tables is recomputed from the recorded runs committed in
-`runs/`, pooled the way `bench.ts` pools them. You do not have to trust the numbers:
-`runs/*.json` carries the rows, the labels, and the diffs they were computed from.
+**The README then went stale a third time, in the same way.** After the corpus was
+replaced it still said "488 gold rows" (the current corpus has 474), still called the
+gap between the backends "seven points" (a figure from two corpora ago), still showed a
+sample run from the old corpus, and claimed every table could be recomputed from `runs/`
+when the Claude rows never could. A reader recomputing from `runs/` would have found all
+four. `test/readme.test.ts` now does that recomputation on every CI run and fails when a
+Textract figure in this file disagrees with the committed runs.
+
+**The Textract figures in these tables are recomputed from the recorded runs committed
+in `runs/`**, pooled the way `bench.ts` pools them. You do not have to trust them:
+`runs/*.json` carries the rows, the labels, and the diffs they were computed from. The
+Claude figures are not in `runs/` and have to be taken as reported.
 
 ---
 
@@ -459,7 +499,7 @@ The geometric backend has two ways to turn OCR output into rows, and the differe
 
 **`anchored`** (the default) ignores the declared coordinates entirely. It finds the printed row-number column in the OCR output, fits `rx = a + b·cy` through it to measure the page's keystone *from the paper itself*, and takes each row's cells from the band around its own anchor. Fields are assigned by reading order and token type rather than by x-window.
 
-Three measured facts make this not a refinement but the only thing that can work:
+It is not immune to the same quiet failure: on the rotated fixture it files rows under a neighbouring key ([above](#what-actually-degrades-a-capture)). Three measured facts are why it is still the right starting point:
 
 | | Measured |
 | --- | --- |
@@ -537,9 +577,14 @@ paperparse assumes the opposite situation: **one form, whose layout you know, th
 
 Known gaps, stated plainly: no PDF or multi-page support, no table-structure detection, and one worked example. Row geometry is no longer hand-authored for the geometric backend — see *Reading rows without trusting the coordinates* — but column semantics and the vision path's crop geometry still are. It has not been benchmarked against any of the tools above — the numbers in this README compare *its own read modes* to each other, nothing more.
 
-**The obvious next thing** is a second backend built on a document-AI service rather than a vision model — Textract's `TABLES` mode, say. On a printed grid it returns cell structure natively, costs roughly an order of magnitude less per page, and gives *calibrated per-word confidence with bounding boxes*, where a vision model gives you a self-report that can be confidently wrong. That last point is the interesting one: it would make the review queue meaningfully better, because you could highlight the exact cell rather than the row.
+**What was the obvious next thing has been built.** An earlier version of this section proposed a second backend on a document-AI service: cheaper per page, with per-word confidence and bounding boxes, so the review queue could point at a cell rather than a row. That is the Textract backend, and `Backend` existed so the comparison could be run rather than argued about — same metrics, same table.
 
-The likely end state isn't one or the other but cheap deterministic extraction with the vision model escalated to only for low-confidence cells. `Backend` exists so that comparison can be run rather than argued about — same gold set, same metrics, same table.
+What the measurements say is next:
+
+- **Row-key misattribution under rotation.** Two degrees is enough to file a row under its neighbour's number at high confidence. This is the defect most worth fixing, because it is the one the pipeline cannot see.
+- **A fallback when the anchors leave the frame.** `cropped-edge` keeps every row legible and loses half of them.
+- **Keep the backend's raw response in the run record.** Today a parser change can only be scored by paying for a new recording. With the raw OCR words committed, it could be replayed against the nine runs for nothing — which is also what diagnosing row 100 needs.
+- **Re-measure the vision backend on the current corpus**, so the two halves of the headline table describe the same images.
 
 ---
 
@@ -547,28 +592,38 @@ The likely end state isn't one or the other but cheap deterministic extraction w
 
 This library's whole job is decoding images from untrusted sources, so the image decoder is part of the attack surface, not just a dependency.
 
-- **`sharp` is pinned to `>=0.35.3`** ([GHSA-f88m-g3jw-g9cj](https://github.com/advisories/GHSA-f88m-g3jw-g9cj), CVSS 7.0 — four inherited libvips CVEs affecting `sharp < 0.35.0`, with high integrity and availability impact when processing untrusted input). Don't relax that floor.
-- **`npm audit` reports zero vulnerabilities** as committed.
+- **`sharp` is held at `>=0.35.5`.** Two advisories set that floor: [GHSA-f88m-g3jw-g9cj](https://github.com/advisories/GHSA-f88m-g3jw-g9cj) (four inherited libvips CVEs, `sharp < 0.35.0`) and [GHSA-rgj7-g3m4-5g8c](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c) (libheif, `sharp < 0.35.4`). Don't relax it.
+- **`npm audit` reported zero vulnerabilities on 2026-10-01**, and CI re-runs it weekly. An earlier version of this line said "as committed" and was false within five weeks: an advisory published after the commit turns a true sentence into a stale one without anything in the repository changing.
 - **Validate format before decoding.** This library does not sniff magic bytes for you — it assumes you hand it an image you already vetted. If you're accepting uploads, check the actual bytes (not the client-declared MIME type) against a narrow allowlist before calling in. The advisory's own suggested mitigation is blocking the GIF, TIFF and VIPS decoders via `sharp.block()`; an allowlist of JPEG/PNG/WebP/HEIC achieves the same thing at the boundary.
 - **EXIF is stripped on the way in.** `prepareForVision` re-encodes and drops all metadata, baking in rotation first so the orientation flag isn't lost with it. Phone photos carry GPS coordinates and device identifiers; that should go before the image is stored, logged, or shown to anyone.
-- **The viewer serves the repo, so it binds loopback only.** `npm run ui` hands out
-  files from the repository directory over plain HTTP with no authentication, which is
-  fine on `127.0.0.1` and would not be on `0.0.0.0` — Node's default. Path traversal is
-  blocked separately: a request resolves inside the repo root or it 404s. Override the
-  bind with `HOST` if you know why you want to.
+- **The viewer's server is local, and treats the browser as untrusted anyway.** `npm run ui`
+  binds `127.0.0.1` rather than Node's default of every interface, and serves three things:
+  its own page, `runs/` and `fixtures/out/`. Nothing else in the repository, no dotfiles,
+  and nothing outside the root. Loopback keeps other machines out but not other web pages
+  — any site open in the same browser can send requests to `127.0.0.1` — and two routes
+  here spend API credit or write files. So every request must carry a `Host` naming this
+  server (which is what DNS rebinding cannot do), any `Origin` must be the server's own,
+  and a POST must be `application/json`, which a page cannot send cross-origin without a
+  preflight this server never answers. Run and fixture ids are restricted to simple names,
+  and request bodies are capped. An earlier version had none of these checks and served
+  the whole repository directory, `.git/` included. Override the bind with `HOST` if you
+  know why you want to; a wildcard bind gives up the `Host` check.
 - **Redaction is model-located, so treat it as a draft.** `redactImage` is best-effort, not a guarantee. For anything with real consequences, have a human check the output — or don't publish the image.
 
 ---
 
 ## Honesty about what's verified
 
-- **179 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, cell provenance, pipeline stage events, review-answer application, the anchoring reach bound, the corpus's controlled-comparison property, augmentation independence, the viewer's record builder, the local server's path-traversal guard, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
+- **198 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, cell provenance, pipeline stage events, review-answer application, the anchoring reach bound, the corpus's controlled-comparison property, augmentation independence, the viewer's record builder, the local server's path-traversal guard and its Host, Origin and content-type checks, the Textract figures in this README against the committed runs, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
 - **Both backends have been run against their live APIs**, as has the redaction pass. The numbers in the benchmark tables are recorded runs, not estimates.
 - **The Textract numbers were re-measured after a bug that made them meaningless.**
   See [*A correction*](#a-correction). The figures published before that described the
   positional path while the default was anchored, and the anchored default was scoring
   zero. The recorded runs behind the current numbers are committed in `runs/`, so the
   tables can be recomputed rather than believed.
+- **The Claude rows are not recomputable from this repo, and were measured on a corpus that no longer exists here.** 488 gold rows against the current 474. They are real measurements and they are not comparable with the Textract rows beside them.
+- **On the rotated sheet, 12 of 45 accepted rows are wrong at high confidence.** The review queue is empty for that run. Recall alone understates this; see [the degradation table](#what-actually-degrades-a-capture).
+- **Row 100 is never returned**, on any sheet that has one. Undiagnosed.
 - **The escalation row is stale and marked as such**, not quietly carried forward.
 - **Every number here is a single pass over 9 synthetic images.** Not averaged over repeats, and the same configuration has moved ~2 points between runs. Differences of a few points are noise.
 - **Three of the nine fixtures test degradations that do not degrade.** Glare, blur and shadow cost exactly zero points. That is a finding, and it is also a criticism of the corpus: the effort should go to geometric damage, which is what actually moves the numbers.
