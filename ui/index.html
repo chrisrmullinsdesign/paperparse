@@ -364,7 +364,10 @@ async function boot() {
   }
 
   renderTabs()
-  if (state.index.length > 0) await load(state.index[0].id)
+  // `#skew` opens that run, so a link can point at one.
+  const asked = decodeURIComponent(location.hash.slice(1))
+  const first = state.index.find((entry) => entry.id === asked) ?? state.index[0]
+  if (first) await load(first.id)
   else renderEmpty()
 }
 
@@ -546,8 +549,10 @@ function bandRect(run, key, info) {
 
 function renderStats() {
   const run = state.run
+  // Counted from the same states the sheet draws, so a labelled row that came back
+  // and was dropped is a drop here too, not a row that was never returned.
   const missing = run.gold
-    ? run.gold.rows.filter((g) => ![...run.rows, ...run.uncertainRows].some((r) => r.rowKey === g.rowKey)).length
+    ? [...rowStates().values()].filter((s) => s.status === 'miss').length
     : null
 
   const cells = [
