@@ -4,8 +4,24 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Weekly, because an advisory published after the last push makes the README's
+  # audit claim false without anything in the repository changing.
+  schedule:
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
 
 jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm audit --audit-level=moderate
+
   test:
     runs-on: ubuntu-latest
     steps:

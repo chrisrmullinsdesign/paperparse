@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest'
 import { join } from 'node:path'
 import { buildRunRecord, rowRects } from '../ui/record.js'
-import { safePath } from '../ui/server.js'
+import { safePath, isServed, rejectRequest, SIMPLE_ID } from '../ui/server.js'
 import { applyResolutions, generateAmbiguities } from '../src/eval/ambiguity.js'
 import { allValidKeys } from '../src/formspec/geometry.js'
 import { campgroundRosterSpec as spec } from '../examples/campground-roster/spec.js'
@@ -173,7 +173,7 @@ describe('applyResolutions', () => {
 describe('safePath', () => {
   const root = process.cwd()
 
-  it('serves a file inside the root', () => {
+  it('resolves a file inside the root', () => {
     expect(safePath('/package.json', root)).toBe(join(root, 'package.json'))
   })
 
@@ -207,5 +207,83 @@ describe('safePath', () => {
 
   it('returns null for a path inside the root that does not exist', () => {
     expect(safePath('/definitely-not-here.txt', root)).toBeNull()
+  })
+
+  it('refuses dotfiles, which are inside the root and would otherwise be served', () => {
+    // Both exist in the repository, so a null here is the guard and not a missing file.
+    expect(safePath('/.env.example', root)).toBeNull()
+    expect(safePath('/.github/workflows/ci.yml', root)).toBeNull()
+    expect(safePath('/%2egithub/workflows/ci.yml', root)).toBeNull()
+  })
+})
+
+describe('isServed', () => {
+  it('admits the page, the runs and the fixtures', () => {
+    expect(isServed('/ui/index.html')).toBe(true)
+    expect(isServed('/runs/index.json')).toBe(true)
+    expect(isServed('/runs/clean.jpg?v=1')).toBe(true)
+    expect(isServed('/fixtures/out/clean.jpg')).toBe(true)
+  })
+
+  it('admits nothing else in the repository', () => {
+    for (const path of ['/package.json', '/src/index.ts', '/ui/server.ts', '/fixtures/generate.ts', '/node_modules/sharp/package.json']) {
+      expect(isServed(path), path).toBe(false)
+    }
+  })
+
+  it('normalizes before matching, so an allowed prefix cannot be climbed out of', () => {
+    expect(isServed('/runs/../package.json')).toBe(false)
+    expect(isServed('/runs/%2e%2e/package.json')).toBe(false)
+    expect(isServed('/%')).toBe(false)
+  })
+})
+
+describe('rejectRequest', () => {
+  const get = (headers: Record<string, string>) => rejectRequest({ method: 'GET', headers }, '127.0.0.1')
+  const post = (headers: Record<string, string>) => rejectRequest({ method: 'POST', headers }, '127.0.0.1')
+  const json = { 'content-type': 'application/json' }
+
+  it('accepts the viewer talking to its own server', () => {
+    expect(get({ host: '127.0.0.1:5173' })).toBeNull()
+    expect(get({ host: 'localhost:5173' })).toBeNull()
+    expect(get({ host: '[::1]:5173' })).toBeNull()
+    expect(post({ host: '127.0.0.1:5173', origin: 'http://127.0.0.1:5173', ...json })).toBeNull()
+    expect(post({ host: 'localhost:5173', origin: 'http://localhost:5173', 'content-type': 'application/json; charset=utf-8' })).toBeNull()
+  })
+
+  it('refuses a Host that is not this server, which is what DNS rebinding sends', () => {
+    expect(get({ host: 'evil.example:5173' })).not.toBeNull()
+    expect(get({ host: '127.0.0.1.evil.example:5173' })).not.toBeNull()
+    expect(get({})).not.toBeNull()
+  })
+
+  it('refuses another origin, including this host on another port', () => {
+    expect(post({ host: '127.0.0.1:5173', origin: 'https://evil.example', ...json })).not.toBeNull()
+    expect(post({ host: '127.0.0.1:5173', origin: 'http://127.0.0.1:8080', ...json })).not.toBeNull()
+    expect(post({ host: '127.0.0.1:5173', origin: 'null', ...json })).not.toBeNull()
+  })
+
+  it('refuses the content types a page can POST cross-origin without a preflight', () => {
+    for (const type of ['text/plain', 'application/x-www-form-urlencoded', 'multipart/form-data']) {
+      expect(post({ host: '127.0.0.1:5173', 'content-type': type }), type).not.toBeNull()
+    }
+    expect(post({ host: '127.0.0.1:5173' })).not.toBeNull()
+  })
+
+  it('keeps the origin and content-type checks on a wildcard bind', () => {
+    expect(rejectRequest({ method: 'GET', headers: { host: '192.168.1.20:5173' } }, '0.0.0.0')).toBeNull()
+    expect(
+      rejectRequest({ method: 'POST', headers: { host: '192.168.1.20:5173', origin: 'https://evil.example', ...json } }, '0.0.0.0'),
+    ).not.toBeNull()
+  })
+})
+
+describe('SIMPLE_ID', () => {
+  it('accepts the ids the corpus uses', () => {
+    for (const id of ['clean', 'lowlight-shadow', 'worst-case', 'run_2', 'v1.2']) expect(SIMPLE_ID.test(id), id).toBe(true)
+  })
+
+  it('refuses anything that could leave the directory it is joined into', () => {
+    for (const id of ['../../etc/passwd', '..', '.env', 'a/b', 'a\\b', '', 'a b']) expect(SIMPLE_ID.test(id), id).toBe(false)
   })
 })

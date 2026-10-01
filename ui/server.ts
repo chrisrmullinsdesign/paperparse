@@ -72,10 +72,92 @@ export function safePath(urlPath: string, base = root): string | null {
     return null // malformed percent-encoding is not a path
   }
   if (decoded.includes('\0')) return null
+  // No dotfiles, at any depth. `.env` and `.git/` sit inside the root, so the
+  // containment check below would hand them out.
+  if (decoded.split(/[\\/]/).some((segment) => segment.startsWith('.'))) return null
   const resolved = normalize(join(base, decoded))
   if (resolved !== base && !resolved.startsWith(base + sep)) return null
   return existsSync(resolved) ? resolved : null
 }
+
+/**
+ * The only paths the viewer reads: its own page, the recorded runs, and the
+ * generated fixtures. Everything else in the repository is not the server's to serve.
+ */
+const SERVED = ['/ui/index.html', '/runs/', '/fixtures/out/']
+
+export function isServed(urlPath: string): boolean {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(urlPath.split('?')[0])
+  } catch {
+    return false
+  }
+  const path = normalize(decoded).split(sep).join('/')
+  return SERVED.some((allowed) => (allowed.endsWith('/') ? path.startsWith(allowed) : path === allowed))
+}
+
+/** Run and fixture ids become file names, so they are names and nothing else. */
+export const SIMPLE_ID = /^[\w-][\w.-]*$/
+
+const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]'])
+
+function hostnameOf(hostHeader: string): string {
+  // `[::1]:5173` keeps its brackets; `localhost:5173` loses its port.
+  return hostHeader.replace(/:\d+$/, '').toLowerCase()
+}
+
+/**
+ * Decide whether a request came from the viewer itself, or return why not.
+ *
+ * Binding loopback keeps other machines out. It does nothing about the browser on
+ * this one: any page the user has open can send requests to `127.0.0.1`, and two of
+ * these routes spend money or write files. Three checks close that:
+ *
+ *  - **Host must name this server.** A DNS-rebinding page reaches loopback under its
+ *    own hostname, and that hostname is what arrives here.
+ *  - **Origin, when present, must be this server.** Browsers attach it to every
+ *    cross-origin POST.
+ *  - **A POST must be `application/json`.** That content type is not one a page can
+ *    send cross-origin without a preflight, and no preflight is answered.
+ *
+ * Exported so the claim can be tested rather than asserted.
+ */
+export function rejectRequest(
+  req: { method?: string; headers: Record<string, string | string[] | undefined> },
+  bound: string = host,
+): string | null {
+  const allowed = new Set([...LOOPBACK, bound.toLowerCase()])
+  // A wildcard bind is reachable under any name the machine has, so there is no
+  // name to check against. Whoever set `HOST` that way gave this check up.
+  const wildcard = bound === '0.0.0.0' || bound === '::'
+  const hostHeader = req.headers.host
+  if (typeof hostHeader !== 'string' || (!wildcard && !allowed.has(hostnameOf(hostHeader)))) {
+    return 'Host header does not name this server.'
+  }
+  const origin = req.headers.origin
+  if (origin !== undefined) {
+    let originHost: string | null = null
+    try {
+      originHost = typeof origin === 'string' ? new URL(origin).host.toLowerCase() : null
+    } catch {
+      originHost = null
+    }
+    if (originHost !== hostHeader.toLowerCase()) return 'Cross-origin requests are not accepted.'
+  }
+  if (req.method === 'POST') {
+    const type = req.headers['content-type']
+    if (typeof type !== 'string' || type.split(';')[0].trim().toLowerCase() !== 'application/json') {
+      return 'POST bodies must be application/json.'
+    }
+  }
+  return null
+}
+
+/** Large enough for a phone photograph as base64, small enough to refuse a flood. */
+const MAX_BODY_BYTES = 32 * 1024 * 1024
+
+class BodyTooLarge extends Error {}
 
 function json(res: import('node:http').ServerResponse, status: number, body: unknown) {
   const payload = JSON.stringify(body)
@@ -85,7 +167,12 @@ function json(res: import('node:http').ServerResponse, status: number, body: unk
 
 async function readBody(req: import('node:http').IncomingMessage): Promise<string> {
   const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
+  let size = 0
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length
+    if (size > MAX_BODY_BYTES) throw new BodyTooLarge()
+    chunks.push(chunk as Buffer)
+  }
   return Buffer.concat(chunks).toString('utf8')
 }
 
@@ -104,7 +191,7 @@ async function extract(body: {
   readMode?: ReadMode
 }) {
   const which = body.backend ?? 'textract'
-  const make = BACKENDS[which]
+  const make = Object.hasOwn(BACKENDS, which) ? BACKENDS[which] : undefined
   if (!make) throw new Error(`Unknown backend "${which}".`)
   const backend = make()
   if (!backend.isAvailable()) throw new Error(`No credentials found for the "${which}" backend.`)
@@ -115,6 +202,8 @@ async function extract(body: {
     image = Buffer.from(body.imageBase64.replace(/^data:[^,]+,/, ''), 'base64')
     id = 'upload'
   } else if (body.fixtureId) {
+    // The id is joined into a path and the file is sent to a third-party API.
+    if (!SIMPLE_ID.test(body.fixtureId)) throw new Error('fixtureId must be a simple identifier.')
     const path = join(root, 'fixtures', 'out', `${body.fixtureId}.jpg`)
     if (!existsSync(path)) throw new Error(`No fixture "${body.fixtureId}". Run \`npm run fixtures\`.`)
     image = await readFile(path)
@@ -159,6 +248,9 @@ const server = createServer(async (req, res) => {
   const url = req.url ?? '/'
 
   try {
+    const rejected = rejectRequest(req)
+    if (rejected) return json(res, 403, { error: rejected })
+
     if (url === '/api/health') {
       return json(res, 200, {
         live: true,
@@ -179,7 +271,7 @@ const server = createServer(async (req, res) => {
         runId?: string
         resolutions?: Resolution[]
       }
-      if (!body.runId || !/^[\w.-]+$/.test(body.runId)) {
+      if (!body.runId || !SIMPLE_ID.test(body.runId)) {
         return json(res, 400, { error: 'runId must be a simple identifier.' })
       }
       await mkdir(join(root, 'runs'), { recursive: true })
@@ -188,7 +280,8 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { saved: (body.resolutions ?? []).length, path: `runs/${body.runId}.review.json` })
     }
 
-    const path = safePath(url === '/' ? '/ui/index.html' : url)
+    const wanted = url === '/' ? '/ui/index.html' : url
+    const path = isServed(wanted) ? safePath(wanted) : null
     if (!path) return json(res, 404, { error: `Not found: ${url}` })
 
     const body = await readFile(path)
@@ -199,6 +292,7 @@ const server = createServer(async (req, res) => {
     })
     res.end(body)
   } catch (err) {
+    if (err instanceof BodyTooLarge) return json(res, 413, { error: 'Request body too large.' })
     json(res, 500, { error: err instanceof Error ? err.message : String(err) })
   }
 })
