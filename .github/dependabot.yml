@@ -17,6 +17,12 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      # The types describe the oldest Node that `engines` admits (22), so code that
+      # typechecks here runs there. A newer major would let a Node 26 API typecheck
+      # and then fail on 22. Bump this together with `engines` and the CI matrix.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       dev-dependencies:
         dependency-type: development
