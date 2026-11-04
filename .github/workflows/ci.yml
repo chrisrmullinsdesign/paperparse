@@ -64,6 +64,11 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # Typecheck and tests never read package.json's `main`, so a build that emits
+      # somewhere else passes both. This builds the library and imports it the way
+      # the README tells a user to.
+      - run: npm run build
+      - run: node scripts/check-package-entry.mjs
       # The suite needs no credentials and makes no network calls, which is the
       # point: a contributor can verify every claim in the README except the
       # recorded benchmark numbers without an AWS account or an API key.
