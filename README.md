@@ -48,7 +48,8 @@ photograph
    ├─ normalize ...... catch the two-digit-year slip before it looks like history
    │
    └─ validate ....... type-check fields, apply cross-field rules,
-                       route low-confidence rows to review,
+                       route low-confidence rows to review, and rows
+                       that read a cell from another row's box,
                        and record every drop with a reason
 ```
 
@@ -114,7 +115,7 @@ Node 22 or later. CI tests 22 and 24.
 
 ```bash
 npm install
-npm test                 # 198 tests, no API key required
+npm test                 # 208 tests, no API key required
 npm run fixtures         # render the synthetic corpus to fixtures/out/
 npm run ui               # the viewer, once you have recorded a run
 ```
@@ -377,16 +378,56 @@ Rotation costs twenty-five, and losing the left edge costs fifty-six.
 
 **The recall column hides the worse half of the rotation result.** On `skew`, 12 of the
 45 rows the parser accepted are wrong, every one of them returned at high confidence,
-and the review queue is empty. Seven sit under a row that is blank on the sheet:
+and the review queue is empty (in the committed run; see [two rows, one box](#two-rows-one-box)). Seven sit under a row that is blank on the sheet:
 accepted row 1 holds row 2's dates, row 4 holds row 5's, row 11 holds row 12's. That is
 the failure this README attributes to positional resolution — plausible rows under the
 wrong key — happening in anchored mode at two degrees of rotation. The validator dropped
 five more that paired one row's arrival with its neighbour's departure, and caught them
 only because the mixture happened to break `departure-after-arrival`. A lost row is
-visible. A row filed under its neighbour's
-number is not, and nothing in the pipeline's own output distinguishes it from a correct
-one; it shows up only against the labels. `cropped-edge` is the opposite case: it loses
-the most rows and gets every row it keeps right.
+visible. A row filed under its neighbour's number is not, at least not by its
+confidence or its OCR scores, which match those of correct rows. An earlier version of
+this paragraph went further and said nothing in the pipeline's own output distinguishes
+it. That was wrong, and the next section says what does. `cropped-edge` is the opposite
+case: it loses the most rows and gets every row it keeps right.
+
+### Two rows, one box
+
+Every cell the Textract backend accepts carries the box of the words it was read from.
+When rotation files row 2's handwriting under row 1, both rows end up citing the *same*
+box, bit for bit, and one box holds only one row's writing. So when two accepted rows
+claim the same box, at least one of them is misfiled. The pipeline now sends both to
+review, with the shared box and the other row named in the question, rather than
+accepting either.
+
+The committed runs predate the rule, but it reads only what they already store, so its
+effect on them can be computed exactly without a new recording
+(`test/shared-cells.test.ts` does, and checks this table):
+
+| Run | Wrong among accepted | Sent to review | Wrong rows caught | Right rows sent too | Still wrong, unflagged |
+| --- | --- | --- | --- | --- | --- |
+| `skew` | 12 of 45 | 17 | 11 of 12 | 6 | 1 |
+| `worst-case` | 11 of 45 | 13 | 9 of 11 | 4 | 2 |
+
+On the seven undamaged sheets it sends nothing to review.
+
+What it is and isn't:
+
+- **It changes no accuracy figure.** Scoring pools accepted and review rows, so recall,
+  precision and field accuracy are identical. What changes is which wrong rows arrive
+  *looking right*: on `skew`, 12 before and 1 after. The reader is no more accurate.
+  Its confidence is more honest.
+- **It costs a reviewer six right rows** on `skew`, because the rule knows a box is
+  contested but not which claimant owns it.
+- **It misses what it cannot see.** Row 4 on `skew` holds row 5's dates, but the
+  validator had already dropped row 5, so no accepted row shares the box. On
+  `worst-case`, row 85 holds row 86's departure while row 86 read row 87's: a one-row
+  shift collides only at its far end.
+- **The review queue can correct a value but cannot yet say "this row is blank on the
+  sheet"**, which is the true answer for row 1 on `skew`. Until it can, a reviewer can
+  flag the problem but can't fully resolve it.
+- **It treats the symptom.** The cause is the row band, which is horizontal while the
+  rows are tilted; see the gaps below.
+- **It needs boxes.** The vision backend reports none, so for it this rule never fires.
 
 **The one missing row on the undamaged sheets is always row 100.** It is printed, filled
 in and legible in `runs/clean.jpg`, and no run returns it — on `full` as well. So 98.1%
@@ -585,7 +626,7 @@ Known gaps, stated plainly: no PDF or multi-page support, no table-structure det
 
 What the measurements say is next:
 
-- **Row-key misattribution under rotation.** Two degrees is enough to file a row under its neighbour's number at high confidence. This is the defect most worth fixing, because it is the one the pipeline cannot see.
+- **Row-key misattribution under rotation.** Two degrees is enough to file a row under its neighbour's number at high confidence. The pipeline can now *see* most of it ([two rows, one box](#two-rows-one-box)), but seeing is not fixing. The suspected cause, not yet confirmed, is that a word's row is decided by a horizontal band around its row number (`src/extract/anchor.ts`), while on a tilted page a cell up to 0.48 page-widths from that number sits higher or lower than it, and can land in the neighbour's band. The gutter fit already measures the tilt, so the band could follow it. That can be unit-tested for free; confirming it on the corpus costs one re-record of `skew` and `worst-case` (about $0.03).
 - **A fallback when the anchors leave the frame.** `cropped-edge` keeps every row legible and loses half of them.
 - **Keep the backend's raw response in the run record.** Today a parser change can only be scored by paying for a new recording. With the raw OCR words committed, it could be replayed against the nine runs for nothing — which is also what diagnosing row 100 needs.
 - **Re-measure the vision backend on the current corpus**, so the two halves of the headline table describe the same images.
@@ -618,7 +659,7 @@ This library's whole job is decoding images from untrusted sources, so the image
 
 ## Honesty about what's verified
 
-- **198 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, cell provenance, pipeline stage events, review-answer application, the anchoring reach bound, the corpus's controlled-comparison property, augmentation independence, the viewer's record builder, the local server's path-traversal guard and its Host, Origin and content-type checks, the Textract figures in this README against the committed runs, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
+- **208 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, cell provenance, pipeline stage events, review-answer application, shared-cell routing and its replay against the committed runs, the anchoring reach bound, the corpus's controlled-comparison property, augmentation independence, the viewer's record builder, the local server's path-traversal guard and its Host, Origin and content-type checks, the Textract figures in this README against the committed runs, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
 - **CI also checks the evidence, not only the code.** On Node 22 and 24 it asserts that the fixture generator is deterministic. On a macOS runner, it also asserts that every image in `runs/` is byte-identical to what `npm run fixtures` produces today ([why macOS](#fixtures-are-synthetic-deliberately)), so a dependency bump that changes how a fixture renders fails the build instead of quietly detaching the committed runs from the code. The workflows themselves are linted by [zizmor](https://docs.zizmor.sh/), and every action is pinned to a commit.
 - **Both backends have been run against their live APIs**, as has the redaction pass. The numbers in the benchmark tables are recorded runs, not estimates.
 - **The Textract numbers were re-measured after a bug that made them meaningless.**
@@ -627,7 +668,7 @@ This library's whole job is decoding images from untrusted sources, so the image
   zero. The recorded runs behind the current numbers are committed in `runs/`, so the
   tables can be recomputed rather than believed.
 - **The Claude rows are not recomputable from this repo, and were measured on a corpus that no longer exists here.** 488 gold rows against the current 474. They are real measurements and they are not comparable with the Textract rows beside them.
-- **On the rotated sheet, 12 of 45 accepted rows are wrong at high confidence.** The review queue is empty for that run. Recall alone understates this; see [the degradation table](#what-actually-degrades-a-capture).
+- **On the rotated sheet, 12 of 45 accepted rows are wrong at high confidence.** The review queue is empty in that committed run, which predates [shared-cell routing](#two-rows-one-box). Replayed with it, 11 of the 12 go to review and 1 still arrives looking right. Recall alone understates this; see [the degradation table](#what-actually-degrades-a-capture).
 - **Row 100 is never returned**, on any sheet that has one. Undiagnosed.
 - **The escalation row is stale and marked as such**, not quietly carried forward.
 - **Every number here is a single pass over 9 synthetic images.** Not averaged over repeats, and the same configuration has moved ~2 points between runs. Differences of a few points are noise.

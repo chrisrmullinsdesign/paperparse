@@ -6,7 +6,13 @@
  * with the relevant 200×40 pixels attached gets answered — and the answers are
  * structured enough to feed back as training data.
  *
- * This generates those questions from low-confidence rows and the FormSpec geometry.
+ * This generates those questions from uncertain rows (low confidence, or a cell box
+ * shared with another row) and the FormSpec geometry.
+ *
+ * A question needs at least two candidate readings, and only dates and integers yield
+ * them. A queued row whose only fields are free text gets no question, so it sits in
+ * the queue unasked. The worked spec has no such field; a spec that does needs a
+ * question kind this file does not have yet.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -88,7 +94,12 @@ export function ambiguitiesForRow(
   const rowRect = rectForKey(spec, row.rowKey) ?? undefined
   const out: Ambiguity[] = []
 
-  for (const field of spec.fields) {
+  // A row queued for a shared box is asked about that box first: it is the one cell
+  // known to be in dispute, and the cap would otherwise spend itself elsewhere.
+  const shared = new Set(row.review?.fields ?? [])
+  const ordered = [...spec.fields].sort((a, b) => Number(shared.has(b.name)) - Number(shared.has(a.name)))
+
+  for (const field of ordered) {
     if (out.length >= maxPerRow) break
     if (field.pii || !wanted.has(field.name)) continue
 
@@ -105,7 +116,9 @@ export function ambiguitiesForRow(
     out.push({
       id: randomUUID(),
       kind: 'field_read',
-      reason: `Low-confidence read of "${field.name}" on row ${row.rowKey}`,
+      reason: shared.has(field.name)
+        ? `Row ${row.rowKey}'s "${field.name}" was read from the same box as row ${row.review!.sharedWith.join(', row ')}'s`
+        : `Low-confidence read of "${field.name}" on row ${row.rowKey}`,
       field: field.name,
       rowRef: { rowKey: row.rowKey, fields: row.fields },
       candidates,
@@ -170,7 +183,9 @@ export function applyResolutions(
       if (field in fields) fields[field] = value
     }
     // A human read the pixels. That is a better source than the model's self-report,
-    // so a corrected row is no longer part of the review queue.
-    return { ...row, fields, confidence: 'high' as const }
+    // so a corrected row is no longer part of the review queue — including the reason
+    // it was queued, which would otherwise outlive the doubt it described.
+    const { review: _settled, ...rest } = row
+    return { ...rest, fields, confidence: 'high' as const }
   })
 }
