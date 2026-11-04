@@ -6,7 +6,13 @@
  * with the relevant 200×40 pixels attached gets answered — and the answers are
  * structured enough to feed back as training data.
  *
- * This generates those questions from low-confidence rows and the FormSpec geometry.
+ * This generates those questions from uncertain rows (low confidence, or a cell box
+ * shared with another row) and the FormSpec geometry.
+ *
+ * A question needs at least two candidate readings, and only dates and integers yield
+ * them. A queued row whose only fields are free text gets no question, so it sits in
+ * the queue unasked. The worked spec has no such field; a spec that does needs a
+ * question kind this file does not have yet.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -177,7 +183,9 @@ export function applyResolutions(
       if (field in fields) fields[field] = value
     }
     // A human read the pixels. That is a better source than the model's self-report,
-    // so a corrected row is no longer part of the review queue.
-    return { ...row, fields, confidence: 'high' as const }
+    // so a corrected row is no longer part of the review queue — including the reason
+    // it was queued, which would otherwise outlive the doubt it described.
+    const { review: _settled, ...rest } = row
+    return { ...rest, fields, confidence: 'high' as const }
   })
 }

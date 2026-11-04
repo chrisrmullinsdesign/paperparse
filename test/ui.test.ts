@@ -154,6 +154,27 @@ describe('applyResolutions', () => {
     expect(out.confidence).toBe('high')
   })
 
+  it('asks a shared-cell row about the shared box first, and names the other row', () => {
+    const shared = row(1, {
+      fields: { permit_number: 5, date_in: '2024-10-28', date_out: '2024-11-03' },
+      review: { reason: 'shared_cell', fields: ['date_out'], sharedWith: [2] },
+    })
+    const [first] = generateAmbiguities(spec, [shared])
+    expect(first.field).toBe('date_out')
+    expect(first.reason).toBe(`Row 1's "date_out" was read from the same box as row 2's`)
+  })
+
+  it('settles the shared-cell doubt once a human answers', () => {
+    const shared = row(1, {
+      fields: { permit_number: 5, date_in: '2024-10-28', date_out: '2024-11-03' },
+      review: { reason: 'shared_cell', fields: ['date_out'], sharedWith: [2] },
+    })
+    const qs = generateAmbiguities(spec, [shared])
+    const [out] = applyResolutions([shared], qs, [answer(qs[0], '2024-11-08')])
+    expect(out.review).toBeUndefined()
+    expect(out.confidence).toBe('high')
+  })
+
   it('treats a skip as no answer, not as agreement', () => {
     const q = questions[0]
     const skip: Resolution = { ambiguityId: q.id, status: 'resolved_skip', resolvedAt: '2026-01-01T00:00:00.000Z' }

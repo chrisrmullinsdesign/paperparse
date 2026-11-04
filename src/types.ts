@@ -104,7 +104,10 @@ export interface ValidationStats {
 export interface ValidationOutput {
   /** Rows the parser is confident about. */
   rows: ValidatedRow[]
-  /** Rows that passed validation but carry low confidence — hold for human review. */
+  /**
+   * Rows that passed validation but should not be trusted unseen: low confidence, or
+   * a cell box another row also claimed (see `ValidatedRow.review`). Hold for review.
+   */
   uncertainRows: ValidatedRow[]
   stats: ValidationStats
 }

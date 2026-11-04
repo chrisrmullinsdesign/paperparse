@@ -48,7 +48,8 @@ photograph
    ├─ normalize ...... catch the two-digit-year slip before it looks like history
    │
    └─ validate ....... type-check fields, apply cross-field rules,
-                       route low-confidence rows to review,
+                       route low-confidence rows to review, and rows
+                       that read a cell from another row's box,
                        and record every drop with a reason
 ```
 
@@ -114,7 +115,7 @@ Node 22 or later. CI tests 22 and 24.
 
 ```bash
 npm install
-npm test                 # 206 tests, no API key required
+npm test                 # 208 tests, no API key required
 npm run fixtures         # render the synthetic corpus to fixtures/out/
 npm run ui               # the viewer, once you have recorded a run
 ```
@@ -658,7 +659,7 @@ This library's whole job is decoding images from untrusted sources, so the image
 
 ## Honesty about what's verified
 
-- **206 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, cell provenance, pipeline stage events, review-answer application, shared-cell routing and its replay against the committed runs, the anchoring reach bound, the corpus's controlled-comparison property, augmentation independence, the viewer's record builder, the local server's path-traversal guard and its Host, Origin and content-type checks, the Textract figures in this README against the committed runs, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
+- **208 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, cell provenance, pipeline stage events, review-answer application, shared-cell routing and its replay against the committed runs, the anchoring reach bound, the corpus's controlled-comparison property, augmentation independence, the viewer's record builder, the local server's path-traversal guard and its Host, Origin and content-type checks, the Textract figures in this README against the committed runs, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
 - **CI also checks the evidence, not only the code.** On Node 22 and 24 it asserts that the fixture generator is deterministic. On a macOS runner, it also asserts that every image in `runs/` is byte-identical to what `npm run fixtures` produces today ([why macOS](#fixtures-are-synthetic-deliberately)), so a dependency bump that changes how a fixture renders fails the build instead of quietly detaching the committed runs from the code. The workflows themselves are linted by [zizmor](https://docs.zizmor.sh/), and every action is pinned to a commit.
 - **Both backends have been run against their live APIs**, as has the redaction pass. The numbers in the benchmark tables are recorded runs, not estimates.
 - **The Textract numbers were re-measured after a bug that made them meaningless.**
