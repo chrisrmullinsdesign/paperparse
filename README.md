@@ -646,6 +646,21 @@ Step 2 is not optional. Everything downstream assumes the geometry is right, and
 
 ---
 
+## How this was built
+
+With a coding agent (Claude Code), under rules that are committed rather than implied:
+
+- **[`CLAUDE.md`](CLAUDE.md)** is the agent's standing brief. It contains no style advice. It records the project's hard rules: no fabricated runs or figures, no paid API call without approval and a stated cost, a fixture change means a re-record, and a secrets/PII sweep before anything goes public.
+- **[`.claude/settings.json`](.claude/settings.json)** makes the agent ask before running the commands that bill an API account, and denies it reads of `.env`. That is a speed bump, not a guarantee. The real control is which credentials exist on the machine.
+- **Changes land by pull request** against a protected `main`, with the [PR template](.github/pull_request_template.md) asking what was verified and how.
+- **Commits the agent helped write carry a `Co-Authored-By` trailer.** Before this was a rule, the history was inconsistent: 11 of the first 22 commits carry one.
+
+The point of the agent here is speed. The point of the rules, the tests on the README's own numbers, and the CI checks on the evidence is that speed is not allowed to turn into claims nobody checked.
+
+Security issues: see [SECURITY.md](SECURITY.md).
+
+---
+
 ## License
 
 MIT
