@@ -1,0 +1,36 @@
+# Security updates are enabled in the repository settings and open a PR as soon as an
+# advisory lands. This file covers routine version updates, batched weekly so the
+# review load stays proportional to a one-maintainer repo.
+#
+# Two dependencies need more than a green check, and CI is built to make that visible:
+#
+# - sharp renders the fixtures. CI fails if a regenerated fixture is no longer
+#   byte-identical to the image a committed run was recorded on; that failure means
+#   the bump forces a paid re-record, which is a maintainer decision, not a merge.
+# - @anthropic-ai/sdk is only exercised against the live API by hand. Typecheck
+#   catches shape changes; behaviour changes need a recorded run with a key.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development
+        update-types: [minor, patch]
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: ci
