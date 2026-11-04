@@ -12,23 +12,54 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same PR supersedes the run in flight; main always runs to the end.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Actions are pinned to a commit, not a tag: a tag can be moved to point at different
+# code, a commit cannot. The comment names the release so Dependabot can bump both.
 jobs:
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 20
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
       - run: npm audit --audit-level=moderate
+
+  # The workflows hold a Pages deployment token, so they are code under review too.
+  # zizmor checks for unpinned actions, persisted credentials, template injection
+  # and over-broad permissions, and fails on any finding.
+  workflow-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: pipx run zizmor==1.32.0 --offline --format=github .github/workflows
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # Every Node release line `engines` admits that is still supported upstream.
+      # Widening `engines` without widening this list makes an untested claim.
+      matrix:
+        node: [22, 24]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 20
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
       - run: npm run typecheck
@@ -43,3 +74,17 @@ jobs:
           npm run fixtures
           sha256sum fixtures/out/*.gold.json > /tmp/second.sha
           diff /tmp/first.sha /tmp/second.sha
+      # The committed runs were recorded on these exact images. If a dependency bump
+      # (sharp, above all) changes how a fixture renders, every run in runs/ describes
+      # an image the generator no longer produces, and the README's numbers with it.
+      # That needs a paid re-record, so it must fail here rather than pass silently.
+      - name: Assert the committed runs were recorded on today's fixtures
+        run: |
+          for run in runs/*.jpg; do
+            name=$(basename "$run")
+            if ! cmp -s "$run" "fixtures/out/$name"; then
+              echo "::error file=$run::fixtures/out/$name no longer matches the image this run was recorded on"
+              status=1
+            fi
+          done
+          exit ${status:-0}
