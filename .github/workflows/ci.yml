@@ -74,10 +74,28 @@ jobs:
           npm run fixtures
           sha256sum fixtures/out/*.gold.json > /tmp/second.sha
           diff /tmp/first.sha /tmp/second.sha
-      # The committed runs were recorded on these exact images. If a dependency bump
-      # (sharp, above all) changes how a fixture renders, every run in runs/ describes
-      # an image the generator no longer produces, and the README's numbers with it.
-      # That needs a paid re-record, so it must fail here rather than pass silently.
+
+  # The committed runs were recorded on these exact images. If a dependency bump
+  # (sharp, above all) changes how a fixture renders, every run in runs/ describes
+  # an image the generator no longer produces, and the README's numbers with it.
+  # That needs a paid re-record, so it must fail here rather than pass silently.
+  #
+  # macOS, because the handwriting is drawn in fonts macOS ships (Bradley Hand,
+  # Chalkboard SE). A Linux runner falls back to other fonts and renders every
+  # fixture differently, which the first version of this check found out.
+  fixtures-match-runs:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run fixtures
       - name: Assert the committed runs were recorded on today's fixtures
         run: |
           for run in runs/*.jpg; do
