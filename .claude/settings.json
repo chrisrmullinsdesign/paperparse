@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "ask": [
+      "Bash(npm run record:*)",
+      "Bash(npm run bench:*)",
+      "Bash(npm run extract:*)",
+      "Bash(npx tsx scripts/record-run.ts:*)",
+      "Bash(npx tsx scripts/bench.ts:*)",
+      "Bash(npx tsx scripts/extract-one.ts:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)"
+    ]
+  }
+}

@@ -110,6 +110,8 @@ Note `[81-89]` stopping at 89 and `[99-100]` picking up after: that falls out of
 
 ## Quickstart
 
+Node 22 or later. CI tests 22 and 24.
+
 ```bash
 npm install
 npm test                 # 198 tests, no API key required
@@ -545,6 +547,8 @@ The same `multisetDiff` serves the review UI, comparing parser output to human-a
 
 The generator renders fake filled-in forms and hands back the rows it wrote, so every image comes with a perfect label set and the benchmark is reproducible from a clean clone.
 
+Reproducible has two meanings here, and only one of them holds everywhere. The **labels** depend only on the seed, and CI checks they are identical across runs on Linux. The **images** depend on the host's fonts as well, because the handwriting is drawn in fonts macOS ships (Bradley Hand, Chalkboard SE). Rendered on Linux, all nine fixtures come out different. That is not a hypothetical. It is what the first version of the CI image check found. So the committed runs are verified, byte for byte, against fixtures regenerated on a macOS runner. On another platform you get a corpus with the same labels and different pixels, which the committed runs say nothing about.
+
 Synthetic rather than redacted real forms, for two reasons. Redaction is a claim you have to defend every time you publish; synthesis isn't a claim at all. And a generator can target specific failure modes on demand:
 
 ```bash
@@ -593,7 +597,7 @@ What the measurements say is next:
 This library's whole job is decoding images from untrusted sources, so the image decoder is part of the attack surface, not just a dependency.
 
 - **`sharp` is held at `>=0.35.5`.** Two advisories set that floor: [GHSA-f88m-g3jw-g9cj](https://github.com/advisories/GHSA-f88m-g3jw-g9cj) (four inherited libvips CVEs, `sharp < 0.35.0`) and [GHSA-rgj7-g3m4-5g8c](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c) (libheif, `sharp < 0.35.4`). Don't relax it.
-- **`npm audit` reported zero vulnerabilities on 2026-10-01**, and CI re-runs it weekly. An earlier version of this line said "as committed" and was false within five weeks: an advisory published after the commit turns a true sentence into a stale one without anything in the repository changing.
+- **CI fails on any moderate-or-higher `npm audit` advisory**, on every push and every Monday. The badge at the top is the current answer, and this line deliberately makes no dated claim of its own. It used to, and was wrong twice. First it said the tree was clean "as committed", which was false within five weeks. Then it said "zero vulnerabilities on 2026-10-01", and on 2026-10-26 the weekly job went red on new vitest and vite advisories. It stayed red for two runs, because a failing scheduled job notifies no one and proposes no fix. The audit did its job, but nothing was watching it. Dependabot security updates now turn a new advisory into a pull request, and `main` cannot merge without a green CI.
 - **Validate format before decoding.** This library does not sniff magic bytes for you — it assumes you hand it an image you already vetted. If you're accepting uploads, check the actual bytes (not the client-declared MIME type) against a narrow allowlist before calling in. The advisory's own suggested mitigation is blocking the GIF, TIFF and VIPS decoders via `sharp.block()`; an allowlist of JPEG/PNG/WebP/HEIC achieves the same thing at the boundary.
 - **EXIF is stripped on the way in.** `prepareForVision` re-encodes and drops all metadata, baking in rotation first so the orientation flag isn't lost with it. Phone photos carry GPS coordinates and device identifiers; that should go before the image is stored, logged, or shown to anyone.
 - **The viewer's server is local, and treats the browser as untrusted anyway.** `npm run ui`
@@ -615,6 +619,7 @@ This library's whole job is decoding images from untrusted sources, so the image
 ## Honesty about what's verified
 
 - **198 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, cell provenance, pipeline stage events, review-answer application, the anchoring reach bound, the corpus's controlled-comparison property, augmentation independence, the viewer's record builder, the local server's path-traversal guard and its Host, Origin and content-type checks, the Textract figures in this README against the committed runs, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
+- **CI also checks the evidence, not only the code.** On Node 22 and 24 it asserts that the fixture generator is deterministic. On a macOS runner, it also asserts that every image in `runs/` is byte-identical to what `npm run fixtures` produces today ([why macOS](#fixtures-are-synthetic-deliberately)), so a dependency bump that changes how a fixture renders fails the build instead of quietly detaching the committed runs from the code. The workflows themselves are linted by [zizmor](https://docs.zizmor.sh/), and every action is pinned to a commit.
 - **Both backends have been run against their live APIs**, as has the redaction pass. The numbers in the benchmark tables are recorded runs, not estimates.
 - **The Textract numbers were re-measured after a bug that made them meaningless.**
   See [*A correction*](#a-correction). The figures published before that described the
@@ -640,6 +645,21 @@ This library's whole job is decoding images from untrusted sources, so the image
 4. Generate or label a small corpus and run the benchmark before trusting it.
 
 Step 2 is not optional. Everything downstream assumes the geometry is right, and wrong geometry produces confident, plausible, wrong output.
+
+---
+
+## How this was built
+
+With a coding agent (Claude Code), under rules that are committed rather than implied:
+
+- **[`CLAUDE.md`](CLAUDE.md)** is the agent's standing brief. It contains no style advice. It records the project's hard rules: no fabricated runs or figures, no paid API call without approval and a stated cost, a fixture change means a re-record, and a secrets/PII sweep before anything goes public.
+- **[`.claude/settings.json`](.claude/settings.json)** makes the agent ask before running the commands that bill an API account, and denies it reads of `.env`. That is a speed bump, not a guarantee. The real control is which credentials exist on the machine.
+- **Changes land by pull request** against a protected `main`, with the [PR template](.github/pull_request_template.md) asking what was verified and how.
+- **Commits the agent helped write carry a `Co-Authored-By` trailer.** Before this was a rule, the history was inconsistent: 11 of the first 22 commits carry one.
+
+The point of the agent here is speed. The point of the rules, the tests on the README's own numbers, and the CI checks on the evidence is that speed is not allowed to turn into claims nobody checked.
+
+Security issues: see [SECURITY.md](SECURITY.md).
 
 ---
 
