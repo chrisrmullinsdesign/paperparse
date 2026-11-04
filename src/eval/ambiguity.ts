@@ -88,7 +88,12 @@ export function ambiguitiesForRow(
   const rowRect = rectForKey(spec, row.rowKey) ?? undefined
   const out: Ambiguity[] = []
 
-  for (const field of spec.fields) {
+  // A row queued for a shared box is asked about that box first: it is the one cell
+  // known to be in dispute, and the cap would otherwise spend itself elsewhere.
+  const shared = new Set(row.review?.fields ?? [])
+  const ordered = [...spec.fields].sort((a, b) => Number(shared.has(b.name)) - Number(shared.has(a.name)))
+
+  for (const field of ordered) {
     if (out.length >= maxPerRow) break
     if (field.pii || !wanted.has(field.name)) continue
 
@@ -105,7 +110,9 @@ export function ambiguitiesForRow(
     out.push({
       id: randomUUID(),
       kind: 'field_read',
-      reason: `Low-confidence read of "${field.name}" on row ${row.rowKey}`,
+      reason: shared.has(field.name)
+        ? `Row ${row.rowKey}'s "${field.name}" was read from the same box as row ${row.review!.sharedWith.join(', row ')}'s`
+        : `Low-confidence read of "${field.name}" on row ${row.rowKey}`,
       field: field.name,
       rowRef: { rowKey: row.rowKey, fields: row.fields },
       candidates,

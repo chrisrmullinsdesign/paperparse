@@ -150,6 +150,66 @@ describe('validateExtraction', () => {
   })
 })
 
+describe('shared-cell routing', () => {
+  const box = (x: number, y: number) => ({ rect: { x, y, w: 0.04, h: 0.01 }, score: 99.9 })
+  const cells = (dateIn: ReturnType<typeof box>, dateOut: ReturnType<typeof box>) => ({
+    date_in: dateIn,
+    date_out: dateOut,
+  })
+
+  it('queues both rows that read a cell from the same box, whatever their confidence', () => {
+    // Row 1 is blank on the sheet and was handed row 2's departure box.
+    const out = validateExtraction(
+      spec,
+      result([
+        row({ row_key: 1, provenance: cells(box(0.3, 0.1), box(0.4, 0.11)) }),
+        row({ row_key: 2, provenance: cells(box(0.3, 0.12), box(0.4, 0.11)) }),
+        row({ row_key: 3, provenance: cells(box(0.3, 0.13), box(0.4, 0.13)) }),
+      ]),
+      { rules },
+    )
+    expect(out.rows.map((r) => r.rowKey)).toEqual([3])
+    expect(out.uncertainRows.map((r) => r.rowKey)).toEqual([1, 2])
+    expect(out.uncertainRows[0].review).toEqual({ reason: 'shared_cell', fields: ['date_out'], sharedWith: [2] })
+    expect(out.uncertainRows[1].review).toEqual({ reason: 'shared_cell', fields: ['date_out'], sharedWith: [1] })
+    // Queued, not dropped: every row is still accounted for as accepted.
+    expect(out.stats.acceptedRowCount).toBe(3)
+    expect(out.uncertainRows.every((r) => r.confidence === 'high')).toBe(true)
+  })
+
+  it('leaves rows alone when their boxes merely sit close together', () => {
+    const out = validateExtraction(
+      spec,
+      result([
+        row({ row_key: 1, provenance: cells(box(0.3, 0.1), box(0.4, 0.1)) }),
+        row({ row_key: 2, provenance: cells(box(0.3, 0.1000001), box(0.4, 0.1000001)) }),
+      ]),
+      { rules },
+    )
+    expect(out.uncertainRows).toEqual([])
+  })
+
+  it('cannot fire for a backend that reports no boxes', () => {
+    const out = validateExtraction(spec, result([row({ row_key: 1 }), row({ row_key: 2 })]), { rules })
+    expect(out.rows).toHaveLength(2)
+    expect(out.uncertainRows).toEqual([])
+  })
+
+  it('can be turned off', () => {
+    const shared = box(0.4, 0.11)
+    const out = validateExtraction(
+      spec,
+      result([
+        row({ row_key: 1, provenance: cells(box(0.3, 0.1), shared) }),
+        row({ row_key: 2, provenance: cells(box(0.3, 0.12), shared) }),
+      ]),
+      { rules, routeSharedCells: false },
+    )
+    expect(out.rows.map((r) => r.rowKey)).toEqual([1, 2])
+    expect(out.rows.every((r) => r.review === undefined)).toBe(true)
+  })
+})
+
 describe('normalizeYears', () => {
   const now = new Date('2026-08-12T00:00:00Z')
 
