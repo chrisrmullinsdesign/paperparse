@@ -17,6 +17,7 @@ import type {
   DropReason,
   ExtractionResult,
   RawRow,
+  SharedCellReview,
   ValidatedRow,
   ValidationOutput,
   ValidationStats,
@@ -45,6 +46,11 @@ export interface ValidateOptions {
   uncertainAtOrBelow?: Confidence
   /** Reject duplicate row keys, keeping the first. On by default. */
   dedupe?: boolean
+  /**
+   * Queue every row that read a cell from the same box as another row. On by default.
+   * Only backends that report cell boxes can trigger it; see `findSharedCells`.
+   */
+  routeSharedCells?: boolean
 }
 
 const CONFIDENCE_RANK: Record<Confidence, number> = { low: 1, medium: 2, high: 3 }
@@ -206,6 +212,48 @@ export function validateRow(
   return { ok: true, row }
 }
 
+const rectKey = ({ x, y, w, h }: { x: number; y: number; w: number; h: number }) => `${x},${y},${w},${h}`
+
+/**
+ * Find rows that read a cell from exactly the same box as another row.
+ *
+ * Returns one entry per implicated row, by index into `rows`. Equality is exact: the
+ * boxes come from the same OCR words, so a cell assigned to two rows carries
+ * bit-identical coordinates, while two genuinely different cells never do. Rows with
+ * no provenance (the vision backend) can never be implicated.
+ *
+ * Replayed over the nine committed Textract runs, this implicates 17 of 45 accepted
+ * rows on `skew` — 11 of its 12 wrong rows and 6 right ones — and nothing at all on
+ * the seven undamaged sheets. `test/shared-cells.test.ts` keeps those figures honest.
+ */
+export function findSharedCells(rows: readonly ValidatedRow[]): Map<number, SharedCellReview> {
+  const claims = new Map<string, Array<{ index: number; field: string }>>()
+  rows.forEach((row, index) => {
+    for (const [field, cell] of Object.entries(row.provenance ?? {})) {
+      const key = rectKey(cell.rect)
+      const list = claims.get(key) ?? []
+      list.push({ index, field })
+      claims.set(key, list)
+    }
+  })
+
+  const out = new Map<number, SharedCellReview>()
+  for (const list of claims.values()) {
+    if (new Set(list.map((c) => c.index)).size < 2) continue
+    for (const { index, field } of list) {
+      const entry = out.get(index) ?? { reason: 'shared_cell' as const, fields: [], sharedWith: [] }
+      if (!entry.fields.includes(field)) entry.fields.push(field)
+      for (const other of list) {
+        const key = rows[other.index].rowKey
+        if (other.index !== index && !entry.sharedWith.includes(key)) entry.sharedWith.push(key)
+      }
+      out.set(index, entry)
+    }
+  }
+  for (const entry of out.values()) entry.sharedWith.sort((a, b) => a - b)
+  return out
+}
+
 /** Validate a whole extraction result, splitting confident rows from uncertain ones. */
 export function validateExtraction(
   spec: FormSpec,
@@ -216,8 +264,7 @@ export function validateExtraction(
   const dedupe = opts.dedupe !== false
   const uncertainThreshold = CONFIDENCE_RANK[opts.uncertainAtOrBelow ?? 'low']
 
-  const rows: ValidatedRow[] = []
-  const uncertainRows: ValidatedRow[] = []
+  const accepted: ValidatedRow[] = []
   const stats: ValidationStats = {
     rawRowCount: result.rows.length,
     acceptedRowCount: 0,
@@ -249,9 +296,20 @@ export function validateExtraction(
     seen.add(row.rowKey)
 
     stats.acceptedRowCount++
-    if (CONFIDENCE_RANK[row.confidence] <= uncertainThreshold) uncertainRows.push(row)
-    else rows.push(row)
+    accepted.push(row)
   }
+
+  // After every row is in, because a shared box implicates rows on both sides of it.
+  const shared = opts.routeSharedCells === false ? new Map<number, SharedCellReview>() : findSharedCells(accepted)
+
+  const rows: ValidatedRow[] = []
+  const uncertainRows: ValidatedRow[] = []
+  accepted.forEach((row, index) => {
+    const review = shared.get(index)
+    if (review) uncertainRows.push({ ...row, review })
+    else if (CONFIDENCE_RANK[row.confidence] <= uncertainThreshold) uncertainRows.push(row)
+    else rows.push(row)
+  })
 
   return { rows, uncertainRows, stats }
 }

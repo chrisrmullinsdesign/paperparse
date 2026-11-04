@@ -60,6 +60,28 @@ export interface ValidatedRow {
    * highlighting a cell should never be pointed at a value that was dropped.
    */
   provenance?: Record<string, CellProvenance>
+  /**
+   * Why this row is in the review queue when its own confidence would have accepted
+   * it. Absent for rows queued on confidence alone.
+   */
+  review?: SharedCellReview
+}
+
+/**
+ * The row read at least one cell from exactly the same box as another row did.
+ *
+ * One box holds one row's handwriting, so when two rows claim it, at least one of
+ * them is filed under the wrong key. The backend's own confidence cannot show this:
+ * on the rotated fixture every misfiled row came back at high confidence with OCR
+ * scores indistinguishable from correct rows. Which of the two is wrong is a question
+ * for a reviewer, so both are queued.
+ */
+export interface SharedCellReview {
+  reason: 'shared_cell'
+  /** This row's fields whose box another row also claimed. */
+  fields: string[]
+  /** The other rows that claimed one of those boxes. */
+  sharedWith: number[]
 }
 
 export type DropReason =
@@ -82,7 +104,10 @@ export interface ValidationStats {
 export interface ValidationOutput {
   /** Rows the parser is confident about. */
   rows: ValidatedRow[]
-  /** Rows that passed validation but carry low confidence — hold for human review. */
+  /**
+   * Rows that passed validation but should not be trusted unseen: low confidence, or
+   * a cell box another row also claimed (see `ValidatedRow.review`). Hold for review.
+   */
   uncertainRows: ValidatedRow[]
   stats: ValidationStats
 }
