@@ -376,7 +376,13 @@ async function load(id) {
   if (!entry) return
   await show(await getJSON(`${base}${id}.json`))
   renderTabs()
+  // Keep the address naming the run on screen, so a copied link opens what was
+  // being looked at. replaceState neither adds a history entry nor fires hashchange.
+  if (decodeURIComponent(location.hash.slice(1)) !== id) history.replaceState(null, '', `#${encodeURIComponent(id)}`)
 }
+
+// A link edited or pasted into an open viewer: follow it.
+window.addEventListener('hashchange', () => load(decodeURIComponent(location.hash.slice(1))))
 
 async function show(run) {
   state.run = run
