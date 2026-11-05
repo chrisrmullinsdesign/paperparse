@@ -120,6 +120,48 @@ describe('README figures, against runs/', () => {
     )
   })
 
+  it('describes the pre-fix skew run the way the screenshot shows it', () => {
+    // docs/img/viewer.jpg was taken of this recording, before the rotation fix.
+    const record = JSON.parse(
+      readFileSync(join(root, 'runs', 'before-rotation-fix', 'skew.json'), 'utf8'),
+    ) as RunRecord
+    const gold = record.gold!.rows
+    const parsed = [...record.rows, ...record.uncertainRows]
+    const diff = multisetDiff(parsed, gold, rowKeySignature)
+    const fields = fieldAccuracy(parsed, gold)
+    const returned = new Set(parsed.map((r) => r.rowKey))
+    const dropped = new Set(record.stats.drops.map((d) => Number(d.rowKey)))
+    const never = gold.filter((g) => !returned.has(g.rowKey) && !dropped.has(g.rowKey)).length
+    expect(readme).toContain(
+      `${record.rows.length} accepted, ${record.uncertainRows.length} review, ${record.stats.droppedRowCount} dropped, ` +
+        `${never} never returned, ${formatPct(prf(diff).recall)} row recall and ` +
+        `${formatPct(fields.correctFields / fields.comparedFields)} field accuracy`,
+    )
+    expect(readme).toContain(
+      `Rows: ${record.stats.rawRowCount} returned, ${record.stats.acceptedRowCount} accepted, ${record.stats.droppedRowCount} dropped`,
+    )
+  })
+
+  it('quotes the rotation fix by the runs on both sides of it', () => {
+    for (const id of ['skew', 'worst-case']) {
+      const score = (rec: RunRecord) => {
+        const parsed = [...rec.rows, ...rec.uncertainRows]
+        return {
+          exact: multisetDiff(parsed, rec.gold!.rows),
+          key: multisetDiff(parsed, rec.gold!.rows, rowKeySignature),
+        }
+      }
+      const before = score(
+        JSON.parse(readFileSync(join(root, 'runs', 'before-rotation-fix', `${id}.json`), 'utf8')) as RunRecord,
+      )
+      const after = score(byId.get(id)!.record)
+      expect(readme).toContain(
+        `| \`${id}\` | ${before.exact.matched} of ${before.exact.predictedCount} | ${before.key.matched} of ${before.key.goldCount} | ` +
+          `${after.exact.matched} of ${after.exact.predictedCount} | ${after.key.matched} of ${after.key.goldCount} |`,
+      )
+    }
+  })
+
   it('names the one row the undamaged sheets never return', () => {
     for (const id of ['clean', 'glare', 'blur', 'lowlight-shadow', 'full']) {
       const { record } = byId.get(id)!

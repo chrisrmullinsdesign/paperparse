@@ -10,7 +10,7 @@ Built around one idea: **a form is data, not code.** You describe the physical a
 
 | Backend | How it reads | Measured |
 | --- | --- | --- |
-| **Textract** | OCR words + boxes, rows anchored on the printed row number | 87.1% row recall, 98.4% field accuracy, ~$0.015/page, **3.6s** — the committed corpus, 474 gold rows |
+| **Textract** | OCR words + boxes, rows anchored on the printed row number | 92.2% row recall, 100.0% field accuracy, ~$0.015/page, **4.0s** — the committed corpus, 474 gold rows |
 | **Claude (vision)** | The image and a generated prompt | **99.6% row recall**, 100% field accuracy, $0.110/page, 31.6s — an *earlier* corpus, 488 gold rows, [not re-measured](#two-corpora) |
 | **Textract → Claude** | Textract first; the vision model re-reads only the doubtful rows | not re-measured since the anchoring change — see [below](#a-correction) |
 
@@ -115,7 +115,7 @@ Node 22 or later. CI tests 22 and 24.
 
 ```bash
 npm install
-npm test                 # 208 tests, no API key required
+npm test                 # 216 tests, no API key required
 npm run fixtures         # render the synthetic corpus to fixtures/out/
 npm run ui               # the viewer, once you have recorded a run
 ```
@@ -134,25 +134,18 @@ npm run extract -- fixtures/out/clean.jpg
 ```
 Backend:   textract  (1 request)
 Read mode: whole
-Rows: 67 returned, 45 accepted, 22 dropped
+Rows: 51 returned, 51 accepted, 0 dropped
 
-Dropped:
-  row 5: failed_row_rule (departure-after-arrival: date_out 2024-10-26 is not after date_in 2024-11-01)
-  row 6: failed_row_rule (departure-after-arrival: date_out 2024-10-25 is not after date_in 2024-10-30)
-  row 8: missing_required_field (date_out)
-  row 13: missing_required_field (date_out)
-  ...
-
-Confident (45):
-    1  date_in=2024-10-28  date_out=2024-11-03
+Confident (51):
     2  date_in=2024-10-28  date_out=2024-11-03
-    4  date_in=2024-11-01  date_out=2024-11-04
+    5  date_in=2024-11-01  date_out=2024-11-04
+    6  date_in=2024-10-25  date_out=2024-10-26
   ...
 ```
 
-The committed run on the rotated sheet, `runs/skew.json`, printed the way `npm run extract` prints a result. Every discarded row is accounted for with a reason — 17 missing a required field, 5 failing a cross-field rule — which is what makes a pattern visible instead of just showing up as a lower number, and rows missing a field are exactly what `EscalatingBackend` sends to the vision model for a second look.
+The committed run on the rotated sheet, `runs/skew.json`, printed the way `npm run extract` prints a result. Every accepted row matches the labels.
 
-Look at the accepted rows too. Rows 1 and 2 carry the same dates, and row 1 is blank on the sheet: the rotation made the parser read row 2's cells twice. Nothing in this output says so. See [what the recall column hides](#what-actually-degrades-a-capture).
+It didn't always. Before the [rotation fix](#rotation-fixed), the same sheet printed `Rows: 67 returned, 45 accepted, 22 dropped`. Each drop came with its reason (17 missing a required field, 5 failing a cross-field rule), which is what made the pattern visible instead of just a lower number. Accepted row 1, blank on the sheet, carried row 2's dates at high confidence, and nothing in the output said so. That recording is kept in `runs/before-rotation-fix/`. When rows are dropped, each one is printed with its reason, and rows missing a field are exactly what `EscalatingBackend` sends to the vision model for a second look.
 
 In code:
 
@@ -222,7 +215,7 @@ returned at all. The rows on the right, hover-linked in both directions. The rev
 queue as a stack of answerable questions, each with the actual pixels attached and a
 keypress per answer.
 
-That screenshot is a real Textract run on `skew`, and it argues the repo's central point
+That screenshot is a real Textract run on `skew`, recorded before the [rotation fix](#rotation-fixed) (it is `runs/before-rotation-fix/skew.json`; the published viewer shows the current run). It argues the repo's central point
 without a paragraph. **The green bands tilt with the photographed paper. The hatched red
 ones sit square to the image.** Both are on the same sheet.
 
@@ -336,7 +329,7 @@ So a Claude row and a Textract row are not a like-for-like comparison. Each is a
 | Configuration | Row recall | Row precision | Exact F1 | Field accuracy | Requests | Cost / image | Avg / image |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | anthropic / whole (earlier corpus, 488 rows) | 99.6% | 99.6% | 99.6% | 100.0% | 1 | $0.110 | 31.6s |
-| textract / whole (current corpus, 474 rows) | 87.1% | 97.2% | 89.4% | 98.4% | 1 | ~$0.015 † | **3.6s** |
+| textract / whole (current corpus, 474 rows) | 92.2% | 100.0% | 95.9% | 100.0% | 1 | ~$0.015 † | **4.0s** |
 | textract → anthropic / escalate (earlier corpus) | *stale* | | | | 2 | $0.064 | 22.5s |
 
 † The harness prices tokens; Textract bills per page. Its cost column reads `$0.000` because the number it knows is genuinely zero — the ~$0.015 is the published `AnalyzeDocument` TABLES rate, quoted here rather than computed.
@@ -347,7 +340,7 @@ Recompute the Textract row from `runs/` with `npm test` (`test/readme.test.ts`),
 
 **Sectioning lost, and it was the hypothesis this repo was built on.** Worst recall of the three read modes, 2.6× the cost, thirteen requests against one. Two things plausibly explain it, and I can only argue for the first: the crops are small, and a model reading ten rows in isolation appears to hedge — 97.8% precision against 82.4% recall is the signature of dropping rows it isn't sure about rather than misreading them. The second is that these are *clean synthetic renders*, and the summarization failure that motivated sectioning may simply not occur on them. The technique was originally developed against real phone photographs of a real clipboard — glare, angle, thumb over the corner. **That is a limitation of this corpus, not a vindication of the technique.** Testing it needs real photographs and a real gold set, which this repo does not have.
 
-**A cheap geometric backend is closer than expected, on the images it can read at all.** Textract returns in 3.6 seconds instead of 32, at roughly an eighth of the cost, at 98.4% field accuracy once partial dates are resolved against the header. On the four same-roster sheets with no geometric damage it scores 98.1% recall each, and the row it misses is the same one every time (below). The vision model's 99.6% was measured on a different corpus, so "within two points" is suggestive and not a comparison. The aggregate is 87.1% because the corpus now contains cases that genuinely defeat it, and what defeats it is specific. See below.
+**A cheap geometric backend is closer than expected, on the images it can read at all.** Textract returns in 4.0 seconds instead of 32, at roughly an eighth of the cost, at 100.0% field accuracy once partial dates are resolved against the header. On the six same-roster sheets that keep their left edge, rotated ones included, it scores 98.1% recall each, and the row it misses is the same one every time (below). The vision model's 99.6% was measured on a different corpus, so "within two points" is suggestive and not a comparison. The aggregate is 92.2% because one fixture still genuinely defeats it, and what defeats it is specific. See below.
 
 **Escalation's numbers are stale and are not repeated here.** They were measured when Textract resolved rows positionally, and escalation triggers on *how many rows the primary returned incomplete* — so changing how the primary assembles rows changes what escalates. The old figures (95.1% recall at $0.064) described a different primary. Re-measuring needs an Anthropic key, which the machine that recorded these runs did not have. Reporting them as current would be exactly the kind of claim the rest of this README is written to avoid.
 
@@ -368,20 +361,21 @@ contents. Per-image, against the clean sheet:
 | glare | bright elliptical wash | 98.1% | **+0.0** | 100.0% | 51 of 51 |
 | blur | gaussian, radius 0.8–1.7 | 98.1% | **+0.0** | 100.0% | 51 of 51 |
 | lowlight-shadow | −28% brightness, corner gradient | 98.1% | **+0.0** | 100.0% | 51 of 51 |
-| skew | rotation, ±2° | 73.1% | **−25.0** | 84.4% | 33 of 45 |
-| worst-case | glare + skew + blur + shadow | 76.9% | −21.2 | 88.9% | 34 of 45 |
+| skew | rotation, ±2° | 98.1% | +0.0 | 100.0% | 51 of 51 |
+| worst-case | glare + skew + blur + shadow | 98.1% | +0.0 | 100.0% | 51 of 51 |
 | cropped-edge | 2–6% off the left edge | 42.3% | **−55.8** | 100.0% | 22 of 22 |
 
-**Photometric damage does nothing. Geometric damage does everything.** Glare, blur
-and shadow cost *exactly zero* points — not "within noise", the same 51 of 52 rows.
-Rotation costs twenty-five, and losing the left edge costs fifty-six.
+**Photometric damage does nothing, and neither, now, does rotation.** Glare, blur
+and shadow cost *exactly zero* points: not "within noise", the same 51 of 52 rows.
+Rotation cost twenty-five until the [rotation fix](#rotation-fixed) and costs nothing
+now. Losing the left edge still costs fifty-six.
 
-**The recall column hides the worse half of the rotation result.** On `skew`, 12 of the
-45 rows the parser accepted are wrong, every one of them returned at high confidence,
-and the review queue is empty (in the committed run; see [two rows, one box](#two-rows-one-box)). Seven sit under a row that is blank on the sheet:
-accepted row 1 holds row 2's dates, row 4 holds row 5's, row 11 holds row 12's. That is
+**Before the fix, the recall column hid the worse half of the rotation result.** On
+`skew`, 12 of the 45 rows the parser accepted were wrong, every one of them returned at
+high confidence, and the review queue was empty (`runs/before-rotation-fix/`). Seven sat under a row that is blank on the sheet:
+accepted row 1 held row 2's dates, row 4 held row 5's, row 11 held row 12's. That is
 the failure this README attributes to positional resolution — plausible rows under the
-wrong key — happening in anchored mode at two degrees of rotation. The validator dropped
+wrong key — happening in anchored mode at a degree and a third of rotation. The validator dropped
 five more that paired one row's arrival with its neighbour's departure, and caught them
 only because the mixture happened to break `departure-after-arrival`. A lost row is
 visible. A row filed under its neighbour's number is not, at least not by its
@@ -399,8 +393,9 @@ claim the same box, at least one of them is misfiled. The pipeline now sends bot
 review, with the shared box and the other row named in the question, rather than
 accepting either.
 
-The committed runs predate the rule, but it reads only what they already store, so its
-effect on them can be computed exactly without a new recording
+It was built against the recordings from before the [rotation fix](#rotation-fixed), kept
+in `runs/before-rotation-fix/`. Those predate the rule, but it reads only what they
+store, so its effect on them can be computed exactly without a new recording
 (`test/shared-cells.test.ts` does, and checks this table):
 
 | Run | Wrong among accepted | Sent to review | Wrong rows caught | Right rows sent too | Still wrong, unflagged |
@@ -408,9 +403,12 @@ effect on them can be computed exactly without a new recording
 | `skew` | 12 of 45 | 17 | 11 of 12 | 6 | 1 |
 | `worst-case` | 11 of 45 | 13 | 9 of 11 | 4 | 2 |
 
-On the seven undamaged sheets it sends nothing to review.
+On the seven undamaged sheets it sends nothing to review. On the current recordings,
+made after the fix, it sends nothing on any of the nine, because nothing is misfiled. It
+stays as a backstop: the next geometry the bands do not anticipate will fail the same
+way, and this is what would catch it.
 
-What it is and isn't:
+What it is and isn't (figures from the pre-fix recordings):
 
 - **It changes no accuracy figure.** Scoring pools accepted and review rows, so recall,
   precision and field accuracy are identical. What changes is which wrong rows arrive
@@ -425,9 +423,41 @@ What it is and isn't:
 - **The review queue can correct a value but cannot yet say "this row is blank on the
   sheet"**, which is the true answer for row 1 on `skew`. Until it can, a reviewer can
   flag the problem but can't fully resolve it.
-- **It treats the symptom.** The cause is the row band, which is horizontal while the
-  rows are tilted; see the gaps below.
+- **It treats the symptom.** The cause was the row band, which was horizontal while the
+  rows were tilted. That is fixed separately, below.
 - **It needs boxes.** The vision backend reports none, so for it this rule never fires.
+
+### Rotation, fixed
+
+The shared boxes pointed at the cause: rows on the far side of the sheet were landing in
+their neighbour's band. A cell's row was decided by a band that was horizontal around
+the printed row number, while on the rotated sheet the rows tilt. At the `skew`
+fixture's -1.3°, the `date_out` column, 0.39 page-widths from its number, has moved
+nearly the full half-band, and a rotated synthetic page in `test/anchor.test.ts`
+reproduces the recorded failure before any money is spent: row 2's departure under row
+1, and so on down the sheet.
+
+The obvious fix was wrong. The gutter fit already measures a slope, and an earlier
+version of this README proposed tilting the band to follow it. But that slope is
+*keystone*. On the real clipboard photographs the printed column leans while the rows
+stay level, and following it would have repaired the synthetic sheet by breaking the
+real ones. So the band follows a slope **measured from the cells themselves**: first
+from the cells nearest each number, where no plausible tilt has moved a cell out of its
+band yet, then from progressively farther ones. On a level page it measures zero, and a
+test holds that to a keystoned page with level rows.
+
+Re-recorded on Textract, two pages for about $0.03:
+
+| Run | Before: accepted rows right | Before: rows found | After: accepted rows right | After: rows found |
+| --- | --- | --- | --- | --- |
+| `skew` | 33 of 45 | 38 of 52 | 51 of 51 | 51 of 52 |
+| `worst-case` | 34 of 45 | 40 of 52 | 51 of 51 | 51 of 52 |
+
+The viewer now reads `skew` as 51 accepted, 0 review, 0 dropped, 1 never returned, 98.1% row recall and 100.0% field accuracy. That is the clean sheet's result, row 100 included.
+
+What this does not show: that the estimate holds on real photographs (it is tested on
+synthetic keystone, and the 41 real sheets are not in this repository), and anything
+past the generator's ±2°.
 
 **The one missing row on the undamaged sheets is always row 100.** It is printed, filled
 in and legible in `runs/clean.jpg`, and no run returns it — on `full` as well. So 98.1%
@@ -451,10 +481,10 @@ strategy cannot survive, and it is the price of refusing to trust declared
 coordinates. A form whose row numbers can leave the frame wants a fallback that
 positional mode would supply.
 
-**`worst-case` scores two rows better than `skew` alone, and that is not noise.**
-Textract returns the same answer for the same image, and the two fixtures share a
-rotation and differ only in photometric treatment. Why blur, glare and shadow on top of
-the rotation recover two rows is unexplained.
+**Before the fix, `worst-case` scored two rows better than `skew` alone**, though the two
+share a rotation and differ only in photometric treatment. It was never explained. With
+the row bands following the tilt, both read 51 of 52, so the puzzle no longer shows,
+but it was not solved either.
 
 ---
 
@@ -542,7 +572,7 @@ The geometric backend has two ways to turn OCR output into rows, and the differe
 
 **`anchored`** (the default) ignores the declared coordinates entirely. It finds the printed row-number column in the OCR output, fits `rx = a + b·cy` through it to measure the page's keystone *from the paper itself*, and takes each row's cells from the band around its own anchor. Fields are assigned by reading order and token type rather than by x-window.
 
-It is not immune to the same quiet failure: on the rotated fixture it files rows under a neighbouring key ([above](#what-actually-degrades-a-capture)). Three measured facts are why it is still the right starting point:
+It was not immune to the same quiet failure: until the [rotation fix](#rotation-fixed), on the rotated fixture it filed rows under a neighbouring key. Three measured facts are why it is still the right starting point:
 
 | | Measured |
 | --- | --- |
@@ -626,7 +656,7 @@ Known gaps, stated plainly: no PDF or multi-page support, no table-structure det
 
 What the measurements say is next:
 
-- **Row-key misattribution under rotation.** Two degrees is enough to file a row under its neighbour's number at high confidence. The pipeline can now *see* most of it ([two rows, one box](#two-rows-one-box)), but seeing is not fixing. The suspected cause, not yet confirmed, is that a word's row is decided by a horizontal band around its row number (`src/extract/anchor.ts`), while on a tilted page a cell up to 0.48 page-widths from that number sits higher or lower than it, and can land in the neighbour's band. The gutter fit already measures the tilt, so the band could follow it. That can be unit-tested for free; confirming it on the corpus costs one re-record of `skew` and `worst-case` (about $0.03).
+- **Check the tilt estimate on real photographs.** [The rotation fix](#rotation-fixed) is verified on two synthetic rotated sheets and on a synthetic keystoned one, not on the 41 real photographs. Those carry personal data and are not in this repository.
 - **A fallback when the anchors leave the frame.** `cropped-edge` keeps every row legible and loses half of them.
 - **Keep the backend's raw response in the run record.** Today a parser change can only be scored by paying for a new recording. With the raw OCR words committed, it could be replayed against the nine runs for nothing — which is also what diagnosing row 100 needs.
 - **Re-measure the vision backend on the current corpus**, so the two halves of the headline table describe the same images.
@@ -659,16 +689,17 @@ This library's whole job is decoding images from untrusted sources, so the image
 
 ## Honesty about what's verified
 
-- **208 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, cell provenance, pipeline stage events, review-answer application, shared-cell routing and its replay against the committed runs, the anchoring reach bound, the corpus's controlled-comparison property, augmentation independence, the viewer's record builder, the local server's path-traversal guard and its Host, Origin and content-type checks, the Textract figures in this README against the committed runs, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
+- **216 tests, no network.** Geometry (forward and inverse), chunk derivation, validation, year correction, partial-date resolution, diff/metrics, review-question generation, prompt and schema construction, split merging, Textract word placement, cell provenance, pipeline stage events, review-answer application, shared-cell routing and its replay against the pre-fix recordings, the anchoring reach bound, row bands on a rotated page and on a keystoned one, the corpus's controlled-comparison property, augmentation independence, the viewer's record builder, the local server's path-traversal guard and its Host, Origin and content-type checks, the Textract figures in this README against the committed runs, escalation routing, and the full pipeline against a stub backend that answers from the generator's own ground truth.
 - **CI also checks the evidence, not only the code.** On Node 22 and 24 it asserts that the fixture generator is deterministic. On a macOS runner, it also asserts that every image in `runs/` is byte-identical to what `npm run fixtures` produces today ([why macOS](#fixtures-are-synthetic-deliberately)), so a dependency bump that changes how a fixture renders fails the build instead of quietly detaching the committed runs from the code. The workflows themselves are linted by [zizmor](https://docs.zizmor.sh/), and every action is pinned to a commit.
 - **Both backends have been run against their live APIs**, as has the redaction pass. The numbers in the benchmark tables are recorded runs, not estimates.
+- **The vision backend has not been run since its SDK moved to 1.x.** `@anthropic-ai/sdk` went from 0.116 to 1.3 on 2026-11-04, which also moves requests to API version `2026-10-21`. Reviewing the migration guide against this code found nothing to change: no sampling parameters, documents, citations, Text Completions or custom auth headers, and one credential per client. It typechecks and its tests pass. That is a review, not a run, and there is no Anthropic key on the machine these runs are recorded on. Note that the SDK's license is now Apache-2.0, which is compatible with this repository's MIT.
 - **The Textract numbers were re-measured after a bug that made them meaningless.**
   See [*A correction*](#a-correction). The figures published before that described the
   positional path while the default was anchored, and the anchored default was scoring
   zero. The recorded runs behind the current numbers are committed in `runs/`, so the
   tables can be recomputed rather than believed.
 - **The Claude rows are not recomputable from this repo, and were measured on a corpus that no longer exists here.** 488 gold rows against the current 474. They are real measurements and they are not comparable with the Textract rows beside them.
-- **On the rotated sheet, 12 of 45 accepted rows are wrong at high confidence.** The review queue is empty in that committed run, which predates [shared-cell routing](#two-rows-one-box). Replayed with it, 11 of the 12 go to review and 1 still arrives looking right. Recall alone understates this; see [the degradation table](#what-actually-degrades-a-capture).
+- **On the rotated sheet, 12 of 45 accepted rows were wrong at high confidence until the [rotation fix](#rotation-fixed)**; re-recorded, all 51 accepted rows are right. The fix is verified on synthetic pages only (see the gaps above). The pre-fix recordings are kept, and every figure quoted from them is recomputed by the tests.
 - **Row 100 is never returned**, on any sheet that has one. Undiagnosed.
 - **The escalation row is stale and marked as such**, not quietly carried forward.
 - **Every number here is a single pass over 9 synthetic images.** Not averaged over repeats, and the same configuration has moved ~2 points between runs. Differences of a few points are noise.

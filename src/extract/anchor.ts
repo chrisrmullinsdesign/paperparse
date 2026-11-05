@@ -253,6 +253,64 @@ export function findGutters(
 }
 
 /**
+ * The page's row tilt, as dy per dx in page fractions, measured from the cells.
+ *
+ * A row's band used to be horizontal: a cell belonged to the row whose number sat
+ * within half a pitch of it vertically. On a rotated page the rows tilt, and a cell
+ * 0.4 page-widths from its number sits higher or lower than the number by
+ * `0.4 × tan θ`. At the `skew` fixture's -1.3° that is about as much as the band
+ * allows, and the recorded run filed 12 of 45 accepted rows under a neighbour's
+ * number: row 2's departure under row 1, and so on down the sheet.
+ *
+ * The gutter fit's slope is *not* this. `b` is keystone, measured on real
+ * clipboard photographs where the printed column leans while the rows stay level.
+ * Tilting the band to follow it would have fixed the synthetic rotation and broken
+ * the real photographs. So the slope is measured from where the cells actually are:
+ * first from the cells nearest each number, where no plausible tilt has moved a cell
+ * out of its band yet, then refined from all of them. On a level page this comes out
+ * near zero and changes nothing.
+ */
+export function rowSlope(
+  spec: FormSpec,
+  words: readonly AnchorWord[],
+  opts: AnchorOptions = {},
+  gutters: readonly Gutter[] = findGutters(spec, words, opts),
+): number {
+  const { bandFraction } = { ...DEFAULTS, ...opts }
+  const reach = opts.reach ?? defaultReach(spec)
+  const anchorWords = new Set(gutters.flatMap((g) => g.anchors))
+  let slope = 0
+
+  // Near cells first: within a third of the reach a 2° tilt moves a cell well under
+  // half a pitch, so the nearest number is still the right one. Each wider pass
+  // assigns cells using the slope the narrower one measured.
+  for (const span of [reach / 3, (2 * reach) / 3, reach]) {
+    const ratios: number[] = []
+    for (const gutter of gutters) {
+      const half = gutter.pitch * bandFraction
+      for (const w of words) {
+        if (anchorWords.has(w)) continue
+        let best: { r: number; dx: number } | null = null
+        for (const anchor of gutter.anchors) {
+          const dx = w.cx - (gutter.line.a + gutter.line.b * anchor.cy)
+          if (dx <= 0.02 || dx >= span) continue
+          const r = w.cy - anchor.cy
+          if (Math.abs(r - slope * dx) < half && (!best || Math.abs(r - slope * dx) < Math.abs(best.r - slope * best.dx))) {
+            best = { r, dx }
+          }
+        }
+        if (best) ratios.push(best.r / best.dx)
+      }
+    }
+    // Too few cells at this reach to say anything: keep what the last pass measured
+    // (level, if none has). A sparse sheet must not be tilted by three words.
+    if (ratios.length < 8) continue
+    slope = median(ratios)
+  }
+  return slope
+}
+
+/**
  * Resolve rows by anchoring on printed keys.
  *
  * Rows with no cell content are returned too, with an empty `cells`. That is
@@ -269,6 +327,7 @@ export function anchoredRows(
   const { bandFraction } = { ...DEFAULTS, ...opts }
   const reach = opts.reach ?? defaultReach(spec)
   const gutters = findGutters(spec, words, opts)
+  const slope = rowSlope(spec, words, opts, gutters)
   const out: AnchoredRow[] = []
   const seen = new Set<number>()
 
@@ -284,7 +343,7 @@ export function anchoredRows(
       const cells = words
         .filter(
           (w) =>
-            Math.abs(w.cy - anchor.cy) < half && w.cx > gx + 0.002 && w.cx < gx + reach,
+            Math.abs(w.cy - (anchor.cy + slope * (w.cx - gx))) < half && w.cx > gx + 0.002 && w.cx < gx + reach,
         )
         .sort((a, b) => a.cx - b.cx)
 
@@ -311,6 +370,7 @@ export function anchoredLabelRows(
   if (!label) return []
 
   const reach = opts.reach ?? defaultReach(spec)
+  const slope = rowSlope(spec, words, opts)
   const re = new RegExp(label.pattern, 'i')
   const out: AnchoredRow[] = []
 
@@ -321,7 +381,12 @@ export function anchoredLabelRows(
     if (!spec.rowKey.ranges.some((r) => key >= r.from && key <= r.to)) continue
 
     const cells = words
-      .filter((c) => Math.abs(c.cy - w.cy) < label.bandHalfHeight && c.cx > w.cx + 0.002 && c.cx < w.cx + reach)
+      .filter(
+        (c) =>
+          Math.abs(c.cy - (w.cy + slope * (c.cx - w.cx))) < label.bandHalfHeight &&
+          c.cx > w.cx + 0.002 &&
+          c.cx < w.cx + reach,
+      )
       .sort((a, b) => a.cx - b.cx)
 
     out.push({ rowKey: key, keyConfidence: w.confidence, cy: w.cy, cells })

@@ -1,11 +1,12 @@
 /**
- * Shared-cell routing, replayed against the committed Textract runs.
+ * Shared-cell routing, replayed against committed Textract runs.
  *
- * The runs were recorded before this rule existed, so their review queues are empty.
- * But the rule reads only what the runs already store — each accepted row's cell
- * boxes — so its effect on them can be computed exactly, without a new recording.
- * This does that, scores the result against the labels, and fails if the README's
- * account of it disagrees.
+ * The rule was built against the recordings from before the rotation fix, kept in
+ * runs/before-rotation-fix/. Those predate the rule, so their review queues are empty,
+ * but it reads only what they store — each accepted row's cell boxes — so its effect
+ * on them can be computed exactly, without a new recording. This does that, scores
+ * the result against the labels, and fails if the README's account disagrees. It also
+ * holds the current recordings, made after the fix, to flagging nothing.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -18,9 +19,13 @@ const root = process.cwd()
 const readme = readFileSync(join(root, 'README.md'), 'utf8')
 const index = JSON.parse(readFileSync(join(root, 'runs', 'index.json'), 'utf8')) as Array<{ id: string }>
 
+const BEFORE_FIX = new Set(['skew', 'worst-case'])
+const load = (id: string, dir: string) =>
+  JSON.parse(readFileSync(join(root, 'runs', dir, `${id}.json`), 'utf8')) as RunRecord
+
 const replay = new Map(
   index.map(({ id }) => {
-    const record = JSON.parse(readFileSync(join(root, 'runs', `${id}.json`), 'utf8')) as RunRecord
+    const record = load(id, BEFORE_FIX.has(id) ? 'before-rotation-fix' : '')
     const gold = new Map(record.gold!.rows.map((g) => [g.rowKey, JSON.stringify(g.fields)]))
     const accepted = [...record.rows, ...record.uncertainRows]
     const flagged = findSharedCells(accepted)
@@ -45,8 +50,17 @@ const replay = new Map(
 )
 
 describe('shared-cell routing on the committed runs', () => {
-  it('were recorded before the rule, with nothing in review', () => {
-    for (const [id, { record }] of replay) expect(record.uncertainRows, id).toEqual([])
+  it('replays the pre-fix recordings, which predate the rule, so nothing was in review', () => {
+    for (const id of BEFORE_FIX) expect(replay.get(id)!.record.uncertainRows, id).toEqual([])
+  })
+
+  it('flags nothing on any current recording, because nothing is misfiled', () => {
+    for (const { id } of index) {
+      const record = load(id, '')
+      const accepted = [...record.rows, ...record.uncertainRows]
+      expect(findSharedCells(accepted).size, id).toBe(0)
+      expect(record.uncertainRows, id).toEqual([])
+    }
   })
 
   it('implicates nothing on a sheet the parser read correctly', () => {
