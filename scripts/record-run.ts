@@ -140,8 +140,20 @@ async function main() {
     )
   }
 
-  await writeFile(join(runsDir, 'index.json'), JSON.stringify(index, null, 2))
-  console.log(`\n${index.length} run(s) written to runs/`)
+  // Merge, don't replace. With `--only`, rewriting the index from just the runs
+  // recorded here dropped every other run from it, and with them from the viewer
+  // and from test/readme.test.ts, which both read the index to find the runs.
+  const indexPath = join(runsDir, 'index.json')
+  const previous: Array<Record<string, unknown>> = existsSync(indexPath)
+    ? JSON.parse(await readFile(indexPath, 'utf8'))
+    : []
+  const byId = new Map(previous.map((e) => [e.id, e]))
+  for (const entry of index) byId.set(entry.id, entry)
+  const order = manifest.map((m) => m.id)
+  const merged = [...byId.values()].sort((a, b) => order.indexOf(String(a.id)) - order.indexOf(String(b.id)))
+
+  await writeFile(indexPath, JSON.stringify(merged, null, 2))
+  console.log(`\n${index.length} run(s) written to runs/; index lists ${merged.length}`)
 }
 
 main().catch((err) => {

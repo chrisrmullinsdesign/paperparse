@@ -2,8 +2,8 @@
   "id": "skew",
   "image": "skew.jpg",
   "imageBase64": null,
-  "recordedAt": "2026-08-25T13:04:37.844Z",
-  "elapsedMs": 3416,
+  "recordedAt": "2026-11-05T00:35:38.166Z",
+  "elapsedMs": 5883,
   "spec": {
     "id": "campground-roster",
     "title": "Cedar Hollow State Forest campsite sign-up roster",
@@ -813,7 +813,7 @@
     }
   },
   "meta": {
-    "recordedAt": "2026-08-25T13:04:37.844Z",
+    "recordedAt": "2026-11-05T00:35:38.166Z",
     "strategy": "single",
     "backend": "textract",
     "sectionParse": false,
@@ -844,7 +844,7 @@
     {
       "stage": "read",
       "status": "done",
-      "detail": "67 raw rows, 1 request(s)"
+      "detail": "51 raw rows, 1 request(s)"
     },
     {
       "stage": "normalize",
@@ -862,38 +862,10 @@
     {
       "stage": "validate",
       "status": "done",
-      "detail": "45 accepted, 0 to review, 22 dropped"
+      "detail": "51 accepted, 0 to review, 0 dropped"
     }
   ],
   "rows": [
-    {
-      "rowKey": 1,
-      "fields": {
-        "date_in": "2024-10-28",
-        "date_out": "2024-11-03"
-      },
-      "confidence": "high",
-      "provenance": {
-        "date_in": {
-          "rect": {
-            "x": 0.3050117790699005,
-            "y": 0.1315528303384781,
-            "w": 0.04516477510333061,
-            "h": 0.009554164484143257
-          },
-          "score": 99.921875
-        },
-        "date_out": {
-          "rect": {
-            "x": 0.39874348044395447,
-            "y": 0.13226953148841858,
-            "w": 0.04393705725669861,
-            "h": 0.009362157434225082
-          },
-          "score": 99.68590545654297
-        }
-      }
-    },
     {
       "rowKey": 2,
       "fields": {
@@ -923,7 +895,7 @@
       }
     },
     {
-      "rowKey": 4,
+      "rowKey": 5,
       "fields": {
         "date_in": "2024-11-01",
         "date_out": "2024-11-04"
@@ -947,6 +919,34 @@
             "h": 0.009900962002575397
           },
           "score": 99.93083953857422
+        }
+      }
+    },
+    {
+      "rowKey": 6,
+      "fields": {
+        "date_in": "2024-10-25",
+        "date_out": "2024-10-26"
+      },
+      "confidence": "high",
+      "provenance": {
+        "date_in": {
+          "rect": {
+            "x": 0.31101247668266296,
+            "y": 0.1830667406320572,
+            "w": 0.04732014611363411,
+            "h": 0.00924978218972683
+          },
+          "score": 99.970703125
+        },
+        "date_out": {
+          "rect": {
+            "x": 0.39882534742355347,
+            "y": 0.1810549795627594,
+            "w": 0.04610516503453255,
+            "h": 0.009577017277479172
+          },
+          "score": 99.9609375
         }
       }
     },
@@ -979,30 +979,30 @@
       }
     },
     {
-      "rowKey": 11,
+      "rowKey": 8,
       "fields": {
-        "date_in": "2024-10-30",
+        "date_in": "2024-10-28",
         "date_out": "2024-11-02"
       },
       "confidence": "high",
       "provenance": {
         "date_in": {
           "rect": {
-            "x": 0.31154483556747437,
-            "y": 0.2571941018104553,
-            "w": 0.04428433999419212,
-            "h": 0.009411819279193878
+            "x": 0.3078906834125519,
+            "y": 0.20799817144870758,
+            "w": 0.04531674459576607,
+            "h": 0.009468462318181992
           },
-          "score": 99.91131591796875
+          "score": 99.9609375
         },
         "date_out": {
           "rect": {
-            "x": 0.4019666612148285,
-            "y": 0.2577935755252838,
-            "w": 0.04454948008060455,
-            "h": 0.009440626949071884
+            "x": 0.40243545174598694,
+            "y": 0.20638532936573029,
+            "w": 0.044166792184114456,
+            "h": 0.009226836264133453
           },
-          "score": 99.79332733154297
+          "score": 99.80229949951172
         }
       }
     },
@@ -1031,6 +1031,34 @@
             "h": 0.009440626949071884
           },
           "score": 99.79332733154297
+        }
+      }
+    },
+    {
+      "rowKey": 13,
+      "fields": {
+        "date_in": "2024-10-30",
+        "date_out": "2024-10-31"
+      },
+      "confidence": "high",
+      "provenance": {
+        "date_in": {
+          "rect": {
+            "x": 0.31366339325904846,
+            "y": 0.27067938446998596,
+            "w": 0.04473398998379707,
+            "h": 0.00948670506477356
+          },
+          "score": 99.921875
+        },
+        "date_out": {
+          "rect": {
+            "x": 0.4038466811180115,
+            "y": 0.26917022466659546,
+            "w": 0.044157080352306366,
+            "h": 0.009399894624948502
+          },
+          "score": 99.931640625
         }
       }
     },
@@ -1147,6 +1175,34 @@
       }
     },
     {
+      "rowKey": 27,
+      "fields": {
+        "date_in": "2024-10-29",
+        "date_out": "2024-11-04"
+      },
+      "confidence": "high",
+      "provenance": {
+        "date_in": {
+          "rect": {
+            "x": 0.3160601854324341,
+            "y": 0.4472547769546509,
+            "w": 0.044279795140028,
+            "h": 0.012155009433627129
+          },
+          "score": 99.931640625
+        },
+        "date_out": {
+          "rect": {
+            "x": 0.4085877537727356,
+            "y": 0.4465775191783905,
+            "w": 0.04437987506389618,
+            "h": 0.009746886789798737
+          },
+          "score": 99.87145233154297
+        }
+      }
+    },
+    {
       "rowKey": 28,
       "fields": {
         "date_in": "2024-10-26",
@@ -1175,7 +1231,7 @@
       }
     },
     {
-      "rowKey": 31,
+      "rowKey": 32,
       "fields": {
         "date_in": "2024-10-31",
         "date_out": "2024-11-06"
@@ -1203,7 +1259,7 @@
       }
     },
     {
-      "rowKey": 32,
+      "rowKey": 33,
       "fields": {
         "date_in": "2024-10-31",
         "date_out": "2024-11-02"
@@ -1212,12 +1268,12 @@
       "provenance": {
         "date_in": {
           "rect": {
-            "x": 0.31662073731422424,
-            "y": 0.5088104009628296,
-            "w": 0.044021233916282654,
-            "h": 0.009439198300242424
+            "x": 0.31873801350593567,
+            "y": 0.5226079225540161,
+            "w": 0.044157251715660095,
+            "h": 0.009623314253985882
           },
-          "score": 99.951171875
+          "score": 99.931640625
         },
         "date_out": {
           "rect": {
@@ -1227,6 +1283,90 @@
             "h": 0.009603316895663738
           },
           "score": 99.85192108154297
+        }
+      }
+    },
+    {
+      "rowKey": 35,
+      "fields": {
+        "date_in": "2024-10-24",
+        "date_out": "2024-10-25"
+      },
+      "confidence": "high",
+      "provenance": {
+        "date_in": {
+          "rect": {
+            "x": 0.32171630859375,
+            "y": 0.5496879816055298,
+            "w": 0.04660612717270851,
+            "h": 0.009901591576635838
+          },
+          "score": 99.970703125
+        },
+        "date_out": {
+          "rect": {
+            "x": 0.4140866696834564,
+            "y": 0.546100378036499,
+            "w": 0.04683542624115944,
+            "h": 0.009370231069624424
+          },
+          "score": 99.970703125
+        }
+      }
+    },
+    {
+      "rowKey": 38,
+      "fields": {
+        "date_in": "2024-10-28",
+        "date_out": "2024-11-01"
+      },
+      "confidence": "high",
+      "provenance": {
+        "date_in": {
+          "rect": {
+            "x": 0.32169535756111145,
+            "y": 0.5860757231712341,
+            "w": 0.04505261406302452,
+            "h": 0.009634247981011868
+          },
+          "score": 99.921875
+        },
+        "date_out": {
+          "rect": {
+            "x": 0.4142478406429291,
+            "y": 0.583867073059082,
+            "w": 0.04284390062093735,
+            "h": 0.009670183062553406
+          },
+          "score": 99.853515625
+        }
+      }
+    },
+    {
+      "rowKey": 39,
+      "fields": {
+        "date_in": "2024-11-01",
+        "date_out": "2024-11-07"
+      },
+      "confidence": "high",
+      "provenance": {
+        "date_in": {
+          "rect": {
+            "x": 0.32103878259658813,
+            "y": 0.5970868468284607,
+            "w": 0.04257022589445114,
+            "h": 0.009302487596869469
+          },
+          "score": 99.85271453857422
+        },
+        "date_out": {
+          "rect": {
+            "x": 0.41492801904678345,
+            "y": 0.5984218120574951,
+            "w": 0.04601714015007019,
+            "h": 0.010738890618085861
+          },
+          "score": 99.73313903808594
         }
       }
     },
@@ -1259,7 +1399,7 @@
       }
     },
     {
-      "rowKey": 41,
+      "rowKey": 42,
       "fields": {
         "date_in": "2024-10-25",
         "date_out": "2024-10-31"
@@ -1287,10 +1427,10 @@
       }
     },
     {
-      "rowKey": 42,
+      "rowKey": 43,
       "fields": {
         "date_in": "2024-10-23",
-        "date_out": "2024-10-25"
+        "date_out": "2024-10-24"
       },
       "confidence": "high",
       "provenance": {
@@ -1305,31 +1445,31 @@
         },
         "date_out": {
           "rect": {
-            "x": 0.3218807578086853,
-            "y": 0.6347403526306152,
-            "w": 0.04670669510960579,
-            "h": 0.00966574251651764
+            "x": 0.4176205098628998,
+            "y": 0.6482760310173035,
+            "w": 0.04651585966348648,
+            "h": 0.009451426565647125
           },
-          "score": 99.951171875
+          "score": 99.970703125
         }
       }
     },
     {
-      "rowKey": 43,
+      "rowKey": 44,
       "fields": {
-        "date_in": "2024-10-23",
+        "date_in": "2024-10-31",
         "date_out": "2024-11-02"
       },
       "confidence": "high",
       "provenance": {
         "date_in": {
           "rect": {
-            "x": 0.3223288655281067,
-            "y": 0.6475751399993896,
-            "w": 0.04519350454211235,
-            "h": 0.009081215597689152
+            "x": 0.3211612403392792,
+            "y": 0.6612229347229004,
+            "w": 0.0439831018447876,
+            "h": 0.009480261243879795
           },
-          "score": 99.84215545654297
+          "score": 99.931640625
         },
         "date_out": {
           "rect": {
@@ -1339,34 +1479,6 @@
             "h": 0.009155004285275936
           },
           "score": 99.85271453857422
-        }
-      }
-    },
-    {
-      "rowKey": 46,
-      "fields": {
-        "date_in": "2024-10-26",
-        "date_out": "2024-10-28"
-      },
-      "confidence": "high",
-      "provenance": {
-        "date_in": {
-          "rect": {
-            "x": 0.32551655173301697,
-            "y": 0.6980385184288025,
-            "w": 0.04610764980316162,
-            "h": 0.008801416493952274
-          },
-          "score": 99.970703125
-        },
-        "date_out": {
-          "rect": {
-            "x": 0.4166448414325714,
-            "y": 0.6975586414337158,
-            "w": 0.04530743882060051,
-            "h": 0.009550404734909534
-          },
-          "score": 99.931640625
         }
       }
     },
@@ -1395,34 +1507,6 @@
             "h": 0.009550404734909534
           },
           "score": 99.931640625
-        }
-      }
-    },
-    {
-      "rowKey": 49,
-      "fields": {
-        "date_in": "2024-10-26",
-        "date_out": "2024-10-27"
-      },
-      "confidence": "high",
-      "provenance": {
-        "date_in": {
-          "rect": {
-            "x": 0.3277297019958496,
-            "y": 0.7354562878608704,
-            "w": 0.04616016894578934,
-            "h": 0.009045545011758804
-          },
-          "score": 99.951171875
-        },
-        "date_out": {
-          "rect": {
-            "x": 0.41641947627067566,
-            "y": 0.7353562712669373,
-            "w": 0.04712468385696411,
-            "h": 0.010603091679513454
-          },
-          "score": 99.81285858154297
         }
       }
     },
@@ -1514,7 +1598,7 @@
       "rowKey": 57,
       "fields": {
         "date_in": "2024-10-25",
-        "date_out": "2024-11-02"
+        "date_out": "2024-10-29"
       },
       "confidence": "high",
       "provenance": {
@@ -1529,12 +1613,12 @@
         },
         "date_out": {
           "rect": {
-            "x": 0.8924581408500671,
-            "y": 0.22136497497558594,
-            "w": 0.04477322846651077,
-            "h": 0.009300676174461842
+            "x": 0.8931336998939514,
+            "y": 0.20662102103233337,
+            "w": 0.04518488794565201,
+            "h": 0.012369475327432156
           },
-          "score": 99.81365966796875
+          "score": 99.81285858154297
         }
       }
     },
@@ -1850,7 +1934,7 @@
       "rowKey": 85,
       "fields": {
         "date_in": "2024-10-24",
-        "date_out": "2024-11-01"
+        "date_out": "2024-10-25"
       },
       "confidence": "high",
       "provenance": {
@@ -1865,12 +1949,12 @@
         },
         "date_out": {
           "rect": {
-            "x": 0.9070417881011963,
-            "y": 0.661719024181366,
-            "w": 0.0428909994661808,
-            "h": 0.009132075123488903
+            "x": 0.9069350361824036,
+            "y": 0.6458519697189331,
+            "w": 0.046844594180583954,
+            "h": 0.009273224510252476
           },
-          "score": 99.8046875
+          "score": 99.912109375
         }
       }
     },
@@ -2099,6 +2183,90 @@
       }
     },
     {
+      "rowKey": 103,
+      "fields": {
+        "date_in": "2024-10-29",
+        "date_out": "2024-11-02"
+      },
+      "confidence": "high",
+      "provenance": {
+        "date_in": {
+          "rect": {
+            "x": 0.3277800679206848,
+            "y": 0.8053990006446838,
+            "w": 0.04414615407586098,
+            "h": 0.012796109542250633
+          },
+          "score": 99.951171875
+        },
+        "date_out": {
+          "rect": {
+            "x": 0.41910120844841003,
+            "y": 0.8019825220108032,
+            "w": 0.044681351631879807,
+            "h": 0.00921682734042406
+          },
+          "score": 99.80388641357422
+        }
+      }
+    },
+    {
+      "rowKey": 104,
+      "fields": {
+        "date_in": "2024-10-30",
+        "date_out": "2024-11-04"
+      },
+      "confidence": "high",
+      "provenance": {
+        "date_in": {
+          "rect": {
+            "x": 0.3303695321083069,
+            "y": 0.8204174041748047,
+            "w": 0.044601570814847946,
+            "h": 0.009481319226324558
+          },
+          "score": 99.89178466796875
+        },
+        "date_out": {
+          "rect": {
+            "x": 0.41828200221061707,
+            "y": 0.8190159201622009,
+            "w": 0.04487307742238045,
+            "h": 0.010023001581430435
+          },
+          "score": 99.85192108154297
+        }
+      }
+    },
+    {
+      "rowKey": 106,
+      "fields": {
+        "date_in": "2024-11-01",
+        "date_out": "2024-11-05"
+      },
+      "confidence": "high",
+      "provenance": {
+        "date_in": {
+          "rect": {
+            "x": 0.3268968164920807,
+            "y": 0.8554046154022217,
+            "w": 0.04303274303674698,
+            "h": 0.009250197559595108
+          },
+          "score": 99.873046875
+        },
+        "date_out": {
+          "rect": {
+            "x": 0.4222595691680908,
+            "y": 0.8526888489723206,
+            "w": 0.045571692287921906,
+            "h": 0.009329449385404587
+          },
+          "score": 99.873046875
+        }
+      }
+    },
+    {
       "rowKey": 107,
       "fields": {
         "date_in": "2024-10-30",
@@ -2129,128 +2297,14 @@
   ],
   "uncertainRows": [],
   "stats": {
-    "rawRowCount": 67,
-    "acceptedRowCount": 45,
-    "droppedRowCount": 22,
-    "dropsByReason": {
-      "failed_row_rule": 5,
-      "missing_required_field": 17
-    },
-    "drops": [
-      {
-        "rowKey": 5,
-        "reason": "failed_row_rule",
-        "detail": "departure-after-arrival: date_out 2024-10-26 is not after date_in 2024-11-01"
-      },
-      {
-        "rowKey": 6,
-        "reason": "failed_row_rule",
-        "detail": "departure-after-arrival: date_out 2024-10-25 is not after date_in 2024-10-30"
-      },
-      {
-        "rowKey": 8,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 13,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 17,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 22,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 26,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 27,
-        "reason": "failed_row_rule",
-        "detail": "departure-after-arrival: date_out 2024-10-26 is not after date_in 2024-10-29"
-      },
-      {
-        "rowKey": 33,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 34,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 35,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 37,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 38,
-        "reason": "failed_row_rule",
-        "detail": "departure-after-arrival: date_out 2024-10-28 is not after date_in 2024-11-01"
-      },
-      {
-        "rowKey": 39,
-        "reason": "failed_row_rule",
-        "detail": "departure-after-arrival: date_out 2024-10-23 is not after date_in 2024-11-01"
-      },
-      {
-        "rowKey": 44,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 75,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 84,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 92,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 99,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 103,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 104,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      },
-      {
-        "rowKey": 106,
-        "reason": "missing_required_field",
-        "detail": "date_out"
-      }
-    ]
+    "rawRowCount": 51,
+    "acceptedRowCount": 51,
+    "droppedRowCount": 0,
+    "dropsByReason": {},
+    "drops": []
   },
   "yearCorrection": null,
-  "notes": "textract/anchored: 328 words read into 67 rows; header date 2024-10-25",
+  "notes": "textract/anchored: 328 words read into 51 rows; header date 2024-10-25",
   "looksLikeExpectedForm": true,
   "ambiguities": [],
   "gold": {
@@ -2677,65 +2731,25 @@
   },
   "score": {
     "keyDiff": {
-      "predictedCount": 45,
+      "predictedCount": 51,
       "goldCount": 52,
-      "matched": 38,
-      "spurious": 7,
-      "missed": 14
+      "matched": 51,
+      "spurious": 0,
+      "missed": 1
     },
     "exactDiff": {
-      "predictedCount": 45,
+      "predictedCount": 51,
       "goldCount": 52,
-      "matched": 33,
-      "spurious": 12,
-      "missed": 19
+      "matched": 51,
+      "spurious": 0,
+      "missed": 1
     },
     "fields": {
-      "comparedRows": 38,
-      "comparedFields": 76,
-      "correctFields": 70,
-      "errorsByField": {
-        "date_out": 5,
-        "date_in": 1
-      },
-      "examples": [
-        {
-          "rowKey": 32,
-          "field": "date_out",
-          "expected": "2024-11-06",
-          "got": "2024-11-02"
-        },
-        {
-          "rowKey": 42,
-          "field": "date_in",
-          "expected": "2024-10-25",
-          "got": "2024-10-23"
-        },
-        {
-          "rowKey": 42,
-          "field": "date_out",
-          "expected": "2024-10-31",
-          "got": "2024-10-25"
-        },
-        {
-          "rowKey": 43,
-          "field": "date_out",
-          "expected": "2024-10-24",
-          "got": "2024-11-02"
-        },
-        {
-          "rowKey": 57,
-          "field": "date_out",
-          "expected": "2024-10-29",
-          "got": "2024-11-02"
-        },
-        {
-          "rowKey": 85,
-          "field": "date_out",
-          "expected": "2024-10-25",
-          "got": "2024-11-01"
-        }
-      ]
+      "comparedRows": 51,
+      "comparedFields": 102,
+      "correctFields": 102,
+      "errorsByField": {},
+      "examples": []
     }
   }
 }

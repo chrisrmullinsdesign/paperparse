@@ -28,12 +28,12 @@
     "image": "skew.jpg",
     "backend": "textract",
     "readMode": "auto",
-    "accepted": 45,
+    "accepted": 51,
     "uncertain": 0,
-    "dropped": 22,
+    "dropped": 0,
     "goldRows": 52,
-    "elapsedMs": 3416,
-    "recordedAt": "2026-08-25T13:04:37.844Z"
+    "elapsedMs": 5883,
+    "recordedAt": "2026-11-05T00:35:38.166Z"
   },
   {
     "id": "blur",
@@ -76,12 +76,12 @@
     "image": "worst-case.jpg",
     "backend": "textract",
     "readMode": "auto",
-    "accepted": 45,
+    "accepted": 51,
     "uncertain": 0,
-    "dropped": 20,
+    "dropped": 0,
     "goldRows": 52,
-    "elapsedMs": 3199,
-    "recordedAt": "2026-08-25T13:04:50.630Z"
+    "elapsedMs": 3989,
+    "recordedAt": "2026-11-05T00:36:40.372Z"
   },
   {
     "id": "sparse",

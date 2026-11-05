@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { findGutters, anchoredRows, anchoredLabelRows, asRowKey, type AnchorWord } from '../src/extract/anchor.js'
+import { findGutters, anchoredRows, anchoredLabelRows, asRowKey, rowSlope, type AnchorWord } from '../src/extract/anchor.js'
 import { assembleAnchored, fillByOrder, toAnchorWords } from '../src/extract/textract.js'
 import { keyAtNormPoint } from '../src/formspec/geometry.js'
 import { campgroundRosterSpec as spec } from '../examples/campground-roster/spec.js'
@@ -346,5 +346,91 @@ describe('reach', () => {
     expect(left.cells.length).toBe(4)
     const rightEdge = spec.layout.blocks.find((b) => b.id === 'main-left')!.x[1]
     for (const c of left.cells) expect(c.cx).toBeLessThan(rightEdge)
+  })
+})
+
+describe('rotation', () => {
+  /**
+   * The page the `skew` fixture is: every row at the spec's declared columns, then
+   * rotated and cover-cropped exactly as `fixtures/generate.ts` does it (about the
+   * centre, `fit: cover` back to the original size).
+   *
+   * Each cell's text names its row, so a cell filed under the neighbouring row is
+   * visible here, as it is not in the recorded run until it is scored against labels.
+   */
+  function rotatedPage(degrees: number, { pii = true, W = 1200, H = 1600 } = {}): AnchorWord[] {
+    const words: AnchorWord[] = []
+    for (const blockId of ['main-left', 'main-right']) {
+      const block = spec.layout.blocks.find((b) => b.id === blockId)!
+      const width = block.x[1] - block.x[0]
+      const pitch = (block.y[1] - block.y[0]) / block.rowSlots
+      for (let key = block.keys.from; key <= block.keys.to; key++) {
+        const cy = block.y[0] + (key - block.keys.from + 0.5) * pitch
+        const gutterRx = block.x[0] + width * 0.06
+        words.push({ text: String(key), confidence: 99, cx: gutterRx - 0.01, cy, rx: gutterRx, h: 0.008 })
+        // Every column, PII included: OCR reads the whole sheet, and the name and
+        // permit columns are the ones nearest the printed number.
+        for (const f of spec.fields) {
+          if (!f.column || (f.pii && !pii)) continue
+          const cx = block.x[0] + width * ((f.column[0] + f.column[1]) / 2)
+          words.push({ text: `${f.name}@${key}`, confidence: 99, cx, cy, rx: cx + 0.02, h: 0.008 })
+        }
+      }
+    }
+
+    // sharp.rotate(angle) turns clockwise for a positive angle and grows the canvas;
+    // resize({ fit: 'cover' }) then scales it down and crops the centre back to W×H.
+    const t = (degrees * Math.PI) / 180
+    const [cos, sin] = [Math.cos(t), Math.sin(t)]
+    const W2 = W * Math.abs(cos) + H * Math.abs(sin)
+    const H2 = W * Math.abs(sin) + H * Math.abs(cos)
+    const s = Math.max(W / W2, H / H2)
+    const map = (xn: number, yn: number) => {
+      const x = xn * W - W / 2
+      const y = yn * H - H / 2
+      const xr = x * cos - y * sin + W2 / 2
+      const yr = x * sin + y * cos + H2 / 2
+      return [(xr * s - (W2 * s - W) / 2) / W, (yr * s - (H2 * s - H) / 2) / H] as const
+    }
+    return words.map((word) => {
+      const [cx, cy] = map(word.cx, word.cy)
+      const [rx] = map(word.rx, word.cy)
+      return { ...word, cx, cy, rx }
+    })
+  }
+
+  const misfiled = (words: AnchorWord[]) =>
+    anchoredRows(spec, words).flatMap((row) =>
+      row.cells.filter((c) => c.text.includes('@') && !c.text.endsWith(`@${row.rowKey}`)).map((c) => `${c.text} under ${row.rowKey}`),
+    )
+
+  it('files every cell under its own row on an unrotated page', () => {
+    expect(misfiled(rotatedPage(0))).toEqual([])
+  })
+
+  it('files every cell under its own row at the skew fixture\'s rotation', () => {
+    // -1.298°, from augmentationRng(1, 'skew'). The recorded run of that fixture
+    // filed 12 of 45 accepted rows under a neighbour's number.
+    expect(misfiled(rotatedPage(-1.298))).toEqual([])
+  })
+
+  it('holds at the generator\'s limit in both directions', () => {
+    expect(misfiled(rotatedPage(2))).toEqual([])
+    expect(misfiled(rotatedPage(-2))).toEqual([])
+  })
+
+  it('measures the tilt from far cells when nothing sits near the number', () => {
+    // No name or permit column: the nearest cells are the dates, past a third of
+    // the reach. The wider passes have to carry the estimate.
+    expect(misfiled(rotatedPage(-1.298, { pii: false }))).toEqual([])
+  })
+
+  it('reads a keystoned page with level rows as level', () => {
+    // The case a gutter-derived tilt would have broken. On the real photographs the
+    // printed column leans while the rows stay level; the band must stay level too.
+    const keys = [...Array(40)].map((_, i) => i + 1)
+    const words = page(keys, { keystone: -0.05 })
+    expect(Math.abs(rowSlope(spec, words))).toBeLessThan(1e-9)
+    for (const row of anchoredRows(spec, words)) expect(row.cells.map((c) => c.text)).toEqual(['10/26', '10/28'])
   })
 })

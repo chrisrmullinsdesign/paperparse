@@ -34,6 +34,10 @@ ask what would falsify it, and make that check run.
    prose. Do not loosen the test. The Claude-backend figures are *not* recomputable
    (no key on the maintainer's machine, older corpus), and the README says so. Keep
    it saying so.
+   History is tested too: `runs/before-rotation-fix/` holds superseded recordings that
+   the README's account of the old failure is recomputed from. Don't delete or
+   regenerate them. When a re-record supersedes a run the prose quotes, archive the old
+   one the same way.
 5. **Sweep before anything goes public.** Before a push, scan every added or changed
    file for secrets, personal data, and image metadata (EXIF/GPS, local paths),
    including `runs/*.json` and images, not just source. Report what was scanned and
