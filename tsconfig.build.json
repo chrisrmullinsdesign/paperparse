@@ -1,0 +1,11 @@
+{
+  // The published library: src/ only, so dist/index.js is the entry package.json
+  // names. tsconfig.json covers everything else (tests, scripts, examples) and is
+  // for type-checking; it never emits.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"]
+}
