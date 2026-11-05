@@ -71,6 +71,14 @@ The README quotes the test count in two places. When adding a test, update both,
   `Cannot read properties of null (reading 'edgesOut')`, even in an empty project.
   `npm ci` from the existing lockfile still works. To change dependencies, use
   `npx npm@11 install --package-lock-only …`, then `npm ci`.
+- **Install scripts are approved by name in `package.json` → `allowScripts`.** npm 11
+  warns about any dependency whose install script nobody reviewed. `esbuild` and
+  `fsevents` (dev tooling, via tsx and vite) are approved. `sharp` ships prebuilt
+  binaries and has none. When a new one appears, approve or deny it on purpose
+  (`npx npm@11 install-scripts approve|deny <pkg> --no-allow-scripts-pin`). Don't
+  let the warning become background noise.
+- **`npm run build` emits the library only** (`tsconfig.build.json`, `src/` → `dist/`).
+  `scripts/check-package-entry.mjs` fails CI if `main`/`types` stop matching it.
 - **`sharp` is held at `>=0.35.5`** for two advisories (see README). A sharp bump can
   also change fixture rendering; the CI image check catches that.
 - **`claude-opus-5` is the vision backend's default model** and the model the
